@@ -9,7 +9,10 @@ export interface MapApi {
   focusPoints: (pts: Pt[]) => void
   finishDrawing: () => void
   undoLastPoint: () => void
-  abortDrawing: () => void
+  /** true bila ada gambar yang sedang dibuat dan dibatalkan. */
+  abortDrawing: () => boolean
+  /** Titik berikutnya pada panjang tertentu (meter) searah kursor. */
+  drawLength: (meters: number) => boolean
 }
 
 export const mapApi: { current: MapApi | null } = { current: null }

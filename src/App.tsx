@@ -5,8 +5,11 @@ import { SidePanel } from './components/SidePanel'
 import { MapView } from './components/MapView'
 import { CalibrateDialog } from './components/CalibrateDialog'
 import { StatusBar } from './components/StatusBar'
-import { useStore } from './store'
-import { ImageError, readImageInfo } from './lib/image'
+import { uid, useStore } from './store'
+import { ExifDialog } from './components/ExifDialog'
+import { LengthInput } from './components/LengthInput'
+import { PrintDialog } from './components/PrintDialog'
+import { ImageError, loadImageFile } from './lib/image'
 import { openProjectZip, ProjectFileError, saveProjectZip } from './lib/project'
 import { autosave, restoreSession } from './lib/storage'
 import { downloadBlob, safeName } from './lib/download'
@@ -24,9 +27,18 @@ export function App() {
 
   const openImage = useCallback(async (file: File) => {
     try {
-      const info = await readImageInfo(file, file.name)
-      useStore.getState().loadImage(file, info)
-      useStore.getState().setNotice({ kind: 'info', text: `Foto dibuka: ${info.width_px} × ${info.height_px} px. Kalibrasi skala dengan tombol R.` })
+      const img = await loadImageFile(file, file.name, () => uid('cal'))
+      useStore.getState().loadImage(img.blob, img.info, img.geoCalibration)
+      const cm = img.geoCalibration ? (img.geoCalibration.meters_per_px * 100).toFixed(2).replace('.', ',') : null
+      const hasExif = !!img.meta && (img.meta.focal_mm != null || img.meta.altitude_rel_m != null)
+      useStore.getState().setNotice({
+        kind: 'info',
+        text: img.geoCalibration
+          ? `GeoTIFF dibuka (${img.info.crs}). Skala otomatis ${cm} cm per piksel, akurasi Tinggi. Verifikasi dengan objek kedua (K).`
+          : hasExif
+            ? `Foto dibuka: ${img.info.width_px} × ${img.info.height_px} px. EXIF terbaca: pakai "Dari EXIF" atau kalibrasi dengan garis referensi (R).`
+            : `Foto dibuka: ${img.info.width_px} × ${img.info.height_px} px. Tidak ada EXIF; kalibrasi skala dengan tombol R.`,
+      })
     } catch (e) {
       useStore.getState().setNotice({ kind: 'error', text: e instanceof ImageError ? e.message : 'Foto tidak bisa dibuka.' })
     }
@@ -98,6 +110,7 @@ export function App() {
   }
 
   return (
+    <>
     <div className="app" onDragOver={(e) => { e.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
       <Toolbar onOpenImage={() => imgInput.current?.click()} onOpenProject={() => zipInput.current?.click()} onSave={save} />
       <input ref={imgInput} type="file" accept="image/jpeg,image/png,.tif,.tiff" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) openImage(f); e.target.value = '' }} />
@@ -118,12 +131,14 @@ export function App() {
             </div>
           )}
           {dragging && <div className="drop" aria-hidden>Lepas berkas di sini</div>}
+          <LengthInput />
         </div>
         <SidePanel />
       </main>
       <StatusBar />
       <CalibrateDialog />
       <CatalogDialog />
+      <ExifDialog />
       <div className="toasts" role="status" aria-live="polite">
         {notice && (
           <div className={`toast ${notice.kind}`}>
@@ -133,5 +148,7 @@ export function App() {
         )}
       </div>
     </div>
+    <PrintDialog />
+    </>
   )
 }

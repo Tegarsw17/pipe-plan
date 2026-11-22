@@ -2,13 +2,13 @@ import { useEffect, useRef } from 'react'
 import OlMap from 'ol/Map'
 import View from 'ol/View'
 import Collection from 'ol/Collection'
-import Feature from 'ol/Feature'
+import Feature, { type FeatureLike } from 'ol/Feature'
 import ImageLayer from 'ol/layer/Image'
 import VectorLayer from 'ol/layer/Vector'
 import VectorSource from 'ol/source/Vector'
 import ImageStatic from 'ol/source/ImageStatic'
 import Projection from 'ol/proj/Projection'
-import Draw from 'ol/interaction/Draw'
+import Draw, { createBox } from 'ol/interaction/Draw'
 import Modify from 'ol/interaction/Modify'
 import Translate from 'ol/interaction/Translate'
 import { defaults as defaultInteractions } from 'ol/interaction/defaults'
@@ -19,7 +19,8 @@ import { Circle as CircleStyle, Fill, Stroke, Style, Text } from 'ol/style'
 import type { StyleLike } from 'ol/style/Style'
 import 'ol/ol.css'
 import type { MeasureType, Pt } from '../lib/types'
-import { measure, fmtArea, fmtLength } from '../lib/geometry'
+import { measure, fmtAngle, fmtArea, fmtLength, dist } from '../lib/geometry'
+import { collectTargets, constrainAngle, pointAtLength, snapPoint } from '../lib/snap'
 import { activeCalibration } from '../lib/calibration'
 import { uid, useHud, useStore, type Tool } from '../store'
 import { fittingsAt, nodeById, pipeName, typeById } from '../lib/pipes'
@@ -31,7 +32,8 @@ const NAVY = '#1E3A5F'
 const GREEN = '#059669'
 const ORANGE = '#EA580C'
 
-const MIN_POINTS: Record<MeasureType, number> = { distance: 2, polyline: 2, area: 3 }
+const MIN_POINTS: Record<MeasureType, number> = { distance: 2, polyline: 2, area: 3, angle: 3 }
+const NAMES: Record<MeasureType, string> = { distance: 'Jarak', polyline: 'Polyline', area: 'Luas', angle: 'Sudut' }
 
 const toOl = (p: Pt, h: number): [number, number] => [p[0], h - p[1]]
 const fromOl = (c: number[], h: number): Pt => [c[0], h - c[1]]
@@ -44,7 +46,7 @@ function pointsOf(geom: Geometry, type: MeasureType, h: number): Pt[] {
   }
   if (geom instanceof LineString) {
     const cs = geom.getCoordinates().map((c) => fromOl(c, h))
-    return type === 'distance' ? cs.slice(0, 2) : cs
+    return type === 'distance' ? cs.slice(0, 2) : type === 'angle' ? cs.slice(0, 3) : cs
   }
   return []
 }
@@ -59,7 +61,7 @@ const labelText = (text: string, color: string, size = 12) =>
     overflow: true,
   })
 
-function makeStyle(h: number, getMpp: () => number | null, getSelected: () => string | null): StyleLike {
+function makeStyle(h: number, getMpp: () => number | null, getSelected: () => string | null): (feature: FeatureLike, resolution?: number) => Style[] {
   return (feature) => {
     const geom = feature.getGeometry()
     if (!geom || !(geom instanceof Geometry)) return []
@@ -83,7 +85,7 @@ function makeStyle(h: number, getMpp: () => number | null, getSelected: () => st
     const mpp = getMpp()
     if (mpp && pts.length >= 2) {
       const r = measure(type, pts, mpp)
-      if (type !== 'distance') {
+      if (type === 'polyline' || type === 'area') {
         r.segments_m.forEach((len, i) => {
           const a = pts[i]
           const b = pts[(i + 1) % pts.length]
@@ -91,7 +93,9 @@ function makeStyle(h: number, getMpp: () => number | null, getSelected: () => st
           styles.push(new Style({ geometry: new Point(toOl([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], h)), text: labelText(fmtLength(len), NAVY, 11) }))
         })
       }
-      if (type === 'area' && pts.length >= 3) {
+      if (type === 'angle' && r.angle_deg !== null) {
+        styles.push(new Style({ geometry: new Point(toOl(pts[1], h)), text: new Text({ text: fmtAngle(r.angle_deg), offsetY: -18, font: '600 13px "Fira Sans", sans-serif', fill: new Fill({ color: NAVY }), stroke: new Stroke({ color: '#fff', width: 4 }) }) }))
+      } else if (type === 'area' && pts.length >= 3) {
         const poly = new Polygon([[...pts.map((p) => toOl(p, h)), toOl(pts[0], h)]])
         styles.push(new Style({ geometry: poly.getInteriorPoint(), text: labelText(`${fmtArea(r.area_m2 ?? 0)}\nKeliling ${fmtLength(r.length_m)}`, NAVY, 12) }))
       } else if (type === 'distance') {
@@ -149,6 +153,41 @@ const referenceStyle = (dashed: boolean): Style[] => [
   new Style({ image: new CircleStyle({ radius: 4, fill: new Fill({ color: '#fff' }), stroke: new Stroke({ color: GREEN, width: 2 }) }), geometry: (f) => new MultiPoint((f.getGeometry() as LineString).getCoordinates()) }),
 ]
 
+/** Gaya pratinjau saat menggambar: garis putus-putus, penanda snap, dan label panjang. */
+function makePreviewStyle(h: number, getMpp: () => number | null): StyleLike {
+  const base = makeStyle(h, getMpp, () => null)
+  return (feature, resolution) => {
+    const pk = feature.get('pk') as string
+    if (pk === 'snap') return new Style({ image: new CircleStyle({ radius: 8, stroke: new Stroke({ color: ORANGE, width: 2 }), fill: new Fill({ color: 'rgba(234,88,12,0.15)' }) }) })
+    if (pk === 'ref') return referenceStyle(true)
+    if (pk === 'pipe') {
+      const g = feature.getGeometry()
+      const mpp = getMpp()
+      const styles = [new Style({ stroke: new Stroke({ color: ORANGE, width: 3, lineDash: [8, 6] }) })]
+      if (g instanceof LineString && mpp) {
+        const [a, b] = g.getCoordinates()
+        styles.push(new Style({ geometry: new Point([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]), text: labelText(fmtLength(Math.hypot(b[0] - a[0], b[1] - a[1]) * mpp), ORANGE, 12) }))
+      }
+      return styles
+    }
+    const arr = base(feature, resolution)
+    for (const st of arr) st.getStroke()?.setLineDash([6, 5])
+    return arr
+  }
+}
+
+const areaStyle = new Style({
+  stroke: new Stroke({ color: ORANGE, width: 2, lineDash: [10, 6] }),
+  text: new Text({ text: 'Area cetak', font: '600 12px "Fira Sans", sans-serif', fill: new Fill({ color: ORANGE }), stroke: new Stroke({ color: '#fff', width: 3 }), offsetY: 14, placement: 'point' }),
+})
+
+interface DrawApi {
+  finish: () => void
+  undo: () => void
+  abort: () => boolean
+  addLength: (m: number) => boolean
+}
+
 export function MapView() {
   const elRef = useRef<HTMLDivElement>(null)
   const ctx = useRef<{
@@ -162,7 +201,8 @@ export function MapView() {
     previewSource: VectorSource
     translateFeatures: Collection<Feature>
     translate: Translate
-    draw: Draw | null
+    areaSource: VectorSource
+    drawApi: DrawApi | null
   } | null>(null)
 
   const image = useStore((s) => s.project.image)
@@ -173,7 +213,6 @@ export function MapView() {
   const selectedId = useStore((s) => s.selectedId)
   const pendingRef = useStore((s) => s.pendingRef)
   const project = useStore((s) => s.project)
-  const pipeChain = useStore((s) => s.pipeChain)
 
   const mpp = activeCalibration(calibrations)?.meters_per_px ?? null
   const mppRef = useRef(mpp)
@@ -195,13 +234,14 @@ export function MapView() {
     const refSource = new VectorSource()
     const pipeSource = new VectorSource()
     const previewSource = new VectorSource()
+    const areaSource = new VectorSource()
     const translateFeatures = new Collection<Feature>()
     const translate = new Translate({ features: translateFeatures, hitTolerance: 6 })
     const style = makeStyle(h, () => mppRef.current, () => selRef.current)
     const modifyFeatures = new Collection<Feature>()
     const modify = new Modify({
       features: modifyFeatures,
-      insertVertexCondition: () => modifyFeatures.item(0)?.get('mtype') !== 'distance',
+      insertVertexCondition: () => { const t = modifyFeatures.item(0)?.get('mtype'); return t !== 'distance' && t !== 'angle' },
     })
 
     const view = new View({
@@ -223,7 +263,8 @@ export function MapView() {
         new VectorLayer({ source: refSource, style: (f) => referenceStyle(f.get('dashed') === true) }),
         new VectorLayer({ source: pipeSource, style: makePipeStyle(h, () => mppRef.current, () => selRef.current, () => projRef.current) }),
         new VectorLayer({ source: measureSource, style }),
-        new VectorLayer({ source: previewSource, style: new Style({ stroke: new Stroke({ color: ORANGE, width: 2, lineDash: [6, 6] }) }) }),
+        new VectorLayer({ source: areaSource, style: areaStyle }),
+        new VectorLayer({ source: previewSource, style: makePreviewStyle(h, () => mppRef.current) }),
       ],
       view,
     })
@@ -261,19 +302,6 @@ export function MapView() {
       useStore.getState().select((pick?.get('mid') ?? pick?.get('pid') ?? null) as string | null)
     })
 
-    // Tool pipa: klik menambah node/segmen; pratinjau garis mengikuti kursor.
-    map.on('click', (e) => {
-      if (useStore.getState().tool !== 'pipe') return
-      useStore.getState().pipeClick(fromOl(e.coordinate, h), 12 * (view.getResolution() ?? 1))
-    })
-    map.on('pointermove', (e) => {
-      const st = useStore.getState()
-      previewSource.clear()
-      if (st.tool !== 'pipe' || !st.pipeChain) return
-      const from = nodeById(st.project, st.pipeChain)
-      if (from) previewSource.addFeature(new Feature(new LineString([toOl(from.point_px, h), e.coordinate])))
-    })
-
     translate.on('translating', (e) => {
       const f = e.features.item(0)
       const id = f?.get('pid') as string | undefined
@@ -298,7 +326,7 @@ export function MapView() {
       if (id && g instanceof Point) useStore.getState().moveNodeTo(id, fromOl(g.getCoordinates(), h))
     })
 
-    ctx.current = { map, h, measureSource, refSource, modify, modifyFeatures, pipeSource, previewSource, translateFeatures, translate, draw: null }
+    ctx.current = { map, h, measureSource, refSource, modify, modifyFeatures, pipeSource, previewSource, translateFeatures, translate, areaSource, drawApi: null }
 
     mapApi.current = {
       fit,
@@ -314,9 +342,10 @@ export function MapView() {
         const ys = pts.map((p) => h - p[1])
         view.fit([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], { padding: [120, 120, 120, 120], minResolution: Math.max(view.getResolution() ?? 1, 0.02) * 0.999, duration: 200 })
       },
-      finishDrawing: () => ctx.current?.draw?.finishDrawing(),
-      undoLastPoint: () => ctx.current?.draw?.removeLastPoint(),
-      abortDrawing: () => ctx.current?.draw?.abortDrawing(),
+      finishDrawing: () => ctx.current?.drawApi?.finish(),
+      undoLastPoint: () => ctx.current?.drawApi?.undo(),
+      abortDrawing: () => ctx.current?.drawApi?.abort() ?? false,
+      drawLength: (m) => ctx.current?.drawApi?.addLength(m) ?? false,
     }
 
     return () => {
@@ -369,11 +398,6 @@ export function MapView() {
     }
   }, [project, mpp, selectedId, tool, image, imageUrl])
 
-  // Pratinjau pipa hilang saat rantai selesai.
-  useEffect(() => {
-    if (!pipeChain) ctx.current?.previewSource.clear()
-  }, [pipeChain])
-
   // Garis referensi: yang sedang menunggu input dan yang dipakai kalibrasi aktif.
   useEffect(() => {
     const c = ctx.current
@@ -388,45 +412,172 @@ export function MapView() {
     if (pendingRef) c.refSource.addFeature(new Feature(new LineString([toOl(pendingRef.p1, c.h), toOl(pendingRef.p2, c.h)])))
   }, [calibrations, pendingRef, image, imageUrl])
 
-  // Pasang interaksi gambar sesuai alat aktif.
+  // Area cetak terpilih.
   useEffect(() => {
     const c = ctx.current
     if (!c) return
+    c.areaSource.clear()
+    const b = project.print_layout.bbox_px
+    if (b) c.areaSource.addFeature(new Feature(new Polygon([[toOl([b[0], b[1]], c.h), toOl([b[2], b[1]], c.h), toOl([b[2], b[3]], c.h), toOl([b[0], b[3]], c.h), toOl([b[0], b[1]], c.h)]])))
+  }, [project.print_layout.bbox_px, image, imageUrl])
+
+  // Mesin menggambar: klik demi klik, dengan snap, kunci sudut (Shift), dan input panjang dari keyboard.
+  useEffect(() => {
+    const c = ctx.current
+    if (!c || !image) return
+    const { map, h, previewSource } = c
+    const view = map.getView()
     c.modify.setActive(tool === 'select')
     c.translate.setActive(tool === 'select')
-    if (c.draw) {
-      c.map.removeInteraction(c.draw)
-      c.draw = null
+    previewSource.clear()
+    c.drawApi = null
+    useHud.getState().set({ drawCount: 0 })
+    if (tool === 'select') return
+
+    if (tool === 'printarea') {
+      const box = new Draw({ type: 'Circle', geometryFunction: createBox(), style: areaStyle })
+      box.on('drawend', (e) => {
+        const ext = e.feature.getGeometry()?.getExtent()
+        if (!ext) return
+        const x0 = Math.max(0, ext[0])
+        const x1 = Math.min(image.width_px, ext[2])
+        const y0 = Math.max(0, h - ext[3])
+        const y1 = Math.min(image.height_px, h - ext[1])
+        const st = useStore.getState()
+        setTimeout(() => {
+          if (x1 - x0 < 10 || y1 - y0 < 10) st.setNotice({ kind: 'error', text: 'Area terlalu kecil. Tarik kotak yang lebih besar.' })
+          else st.setPrintLayout({ bbox_px: [x0, y0, x1, y1] })
+          st.setTool('select')
+          st.openDialog('print')
+        }, 0)
+      })
+      map.addInteraction(box)
+      return () => map.removeInteraction(box)
     }
-    if (tool === 'select' || tool === 'pipe') return
-    const type: MeasureType | 'reference' = tool
-    const isArea = type === 'area'
-    const h = c.h
-    const draw = new Draw({
-      type: isArea ? 'Polygon' : 'LineString',
-      maxPoints: type === 'distance' || type === 'reference' ? 2 : undefined,
-      minPoints: isArea ? 3 : 2,
-      style: type === 'reference' ? referenceStyle(false) : makeStyle(h, () => mppRef.current, () => null),
-    })
-    draw.on('drawend', (e) => {
-      const g = e.feature.getGeometry()
-      if (!g) return
-      if (type === 'reference') {
-        const pts = pointsOf(g, 'distance', h)
-        if (pts.length === 2) useStore.getState().setPendingRef({ p1: pts[0], p2: pts[1] })
+
+    const pts: Pt[] = []
+    let cursor: Pt | null = null
+    let raw: number[] | null = null
+    let snapped = false
+    let shift = false
+    const res = () => view.getResolution() ?? 1
+
+    const lastPoint = (): Pt | null => {
+      if (tool === 'pipe') {
+        const st = useStore.getState()
+        return (st.pipeChain && nodeById(st.project, st.pipeChain)?.point_px) || null
+      }
+      return pts[pts.length - 1] ?? null
+    }
+
+    const resolve = (coord: number[]): { p: Pt; snapped: boolean } => {
+      const p = fromOl(coord, h)
+      const last = lastPoint()
+      if (shift && last) return { p: constrainAngle(last, p), snapped: false }
+      if (useStore.getState().snapOn) {
+        const hit = snapPoint(p, collectTargets(projRef.current, pts), 10 * res())
+        if (hit) return { p: hit.point, snapped: true }
+      }
+      return { p, snapped: false }
+    }
+
+    const refresh = () => {
+      previewSource.clear()
+      const last = lastPoint()
+      if (tool === 'pipe') {
+        if (last && cursor) previewSource.addFeature(new Feature({ geometry: new LineString([toOl(last, h), toOl(cursor, h)]), pk: 'pipe' }))
+      } else {
+        const all = cursor ? [...pts, cursor] : [...pts]
+        if (all.length >= 2) {
+          const coords = all.map((p) => toOl(p, h))
+          const geom = tool === 'area' && all.length >= 3 ? new Polygon([[...coords, coords[0]]]) : new LineString(coords)
+          previewSource.addFeature(new Feature({ geometry: geom, pk: tool === 'reference' || tool === 'verify' ? 'ref' : 'measure', mtype: tool }))
+        }
+      }
+      if (cursor && snapped) previewSource.addFeature(new Feature({ geometry: new Point(toOl(cursor, h)), pk: 'snap' }))
+      useHud.getState().set({ drawCount: tool === 'pipe' ? (last ? 1 : 0) : pts.length })
+    }
+
+    const finish = () => {
+      const st = useStore.getState()
+      if (tool === 'pipe') { st.endPipeChain(); refresh(); return }
+      if (tool === 'reference' || tool === 'verify') {
+        if (pts.length >= 2) st.setPendingRef({ p1: pts[0], p2: pts[1], mode: tool === 'verify' ? 'verify' : 'calibrate' })
+      } else if (pts.length >= MIN_POINTS[tool]) {
+        const n = st.project.measurements.filter((m) => m.type === tool).length + 1
+        st.addMeasurement({ id: uid('m'), layer_id: 'layer-ukur', type: tool, points_px: [...pts], label: `${NAMES[tool]} ${n}` })
+      }
+      pts.length = 0
+      cursor = null
+      refresh()
+    }
+
+    const commit = (p: Pt, nodeTol: number) => {
+      const st = useStore.getState()
+      if (tool === 'pipe') {
+        st.pipeClick(p, nodeTol)
+        cursor = p
+        refresh()
         return
       }
-      const pts = pointsOf(g, type, h)
-      if (pts.length < MIN_POINTS[type]) return
-      const n = useStore.getState().project.measurements.filter((m) => m.type === type).length + 1
-      const names: Record<MeasureType, string> = { distance: 'Jarak', polyline: 'Polyline', area: 'Luas' }
-      useStore.getState().addMeasurement({ id: uid('m'), layer_id: 'layer-ukur', type, points_px: pts, label: `${names[type]} ${n}` })
-    })
-    c.map.addInteraction(draw)
-    c.draw = draw
+      const last = pts[pts.length - 1]
+      if (last && dist(last, p) <= 4 * res()) return finish() // klik dua kali di titik yang sama = selesai
+      pts.push(p)
+      refresh()
+      if ((tool === 'distance' || tool === 'reference' || tool === 'verify') && pts.length === 2) finish()
+      else if (tool === 'angle' && pts.length === 3) finish()
+    }
+
+    const onMove = (e: { coordinate: number[] }) => {
+      raw = e.coordinate
+      const r = resolve(raw)
+      cursor = r.p
+      snapped = r.snapped
+      refresh()
+    }
+    const onClick = (e: { coordinate: number[] }) => {
+      const r = resolve(e.coordinate)
+      snapped = r.snapped
+      commit(r.p, 10 * res())
+    }
+    const onShift = (e: KeyboardEvent) => {
+      if (e.key !== 'Shift' || shift === (e.type === 'keydown')) return
+      shift = e.type === 'keydown'
+      if (raw) onMove({ coordinate: raw })
+    }
+
+    map.on('pointermove', onMove)
+    map.on('click', onClick)
+    window.addEventListener('keydown', onShift)
+    window.addEventListener('keyup', onShift)
+
+    c.drawApi = {
+      finish,
+      undo: () => { if (tool !== 'pipe') { pts.pop(); refresh() } },
+      abort: () => {
+        const had = tool === 'pipe' ? !!lastPoint() : pts.length > 0
+        if (tool === 'pipe') useStore.getState().endPipeChain()
+        pts.length = 0
+        cursor = null
+        refresh()
+        return had
+      },
+      addLength: (m) => {
+        const mpp = mppRef.current
+        const last = lastPoint()
+        if (!mpp || !last || !(m > 0)) return false
+        commit(pointAtLength(last, cursor, m / mpp), 0)
+        return true
+      },
+    }
     return () => {
-      c.map.removeInteraction(draw)
-      if (c.draw === draw) c.draw = null
+      map.un('pointermove', onMove)
+      map.un('click', onClick)
+      window.removeEventListener('keydown', onShift)
+      window.removeEventListener('keyup', onShift)
+      previewSource.clear()
+      c.drawApi = null
+      useHud.getState().set({ drawCount: 0 })
     }
   }, [tool, image, imageUrl])
 
@@ -436,34 +587,39 @@ export function MapView() {
       const t = e.target as HTMLElement
       if (t.closest('input, textarea, select, dialog, [role="dialog"]')) return
       const st = useStore.getState()
-      const keyTool: Record<string, Tool> = { v: 'select', r: 'reference', d: 'distance', p: 'polyline', a: 'area', l: 'pipe' }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      const mod = e.ctrlKey || e.metaKey
+      const keyTool: Record<string, Tool> = { v: 'select', r: 'reference', k: 'verify', d: 'distance', p: 'polyline', a: 'area', s: 'angle', l: 'pipe' }
+      if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         if (e.shiftKey) st.redo()
         else st.undo()
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      } else if (mod && e.key.toLowerCase() === 'y') {
         e.preventDefault()
         st.redo()
-      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && keyTool[e.key.toLowerCase()]) {
+      } else if (!mod && !e.altKey && keyTool[e.key.toLowerCase()]) {
         const next = keyTool[e.key.toLowerCase()]
         if (next !== 'select' && next !== 'reference' && !mppRef.current) {
           st.setNotice({ kind: 'error', text: 'Kalibrasi skala dulu (tombol R) sebelum mengukur.' })
           return
         }
         st.setTool(next)
-      } else if (e.key === 'Escape' && st.tool === 'pipe' && st.pipeChain) {
-        st.endPipeChain()
       } else if (e.key === 'Escape') {
-        mapApi.current?.abortDrawing()
-        st.setPendingRef(null)
-        st.setTool('select')
-        st.select(null)
+        if (!mapApi.current?.abortDrawing()) {
+          st.setPendingRef(null)
+          st.setTool('select')
+          st.select(null)
+        }
       } else if (e.key === 'Enter') {
-        if (st.tool === 'pipe') st.endPipeChain()
-        else mapApi.current?.finishDrawing()
+        mapApi.current?.finishDrawing()
+      } else if (e.key === 'Backspace' && st.tool !== 'select' && st.tool !== 'pipe') {
+        e.preventDefault()
+        mapApi.current?.undoLastPoint()
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && st.selectedId) {
+        st.deleteSelected()
+      } else if (/^[0-9.,]$/.test(e.key) && !mod && useHud.getState().drawCount > 0) {
+        // Mengetik angka saat menggambar = langsung mengisi panjang segmen berikutnya.
+        document.getElementById('length-input')?.focus()
       }
-      else if (e.key === 'Backspace' && st.tool !== 'select' && st.tool !== 'pipe') { e.preventDefault(); mapApi.current?.undoLastPoint() }
-      else if ((e.key === 'Delete' || e.key === 'Backspace') && st.selectedId) st.deleteSelected()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -474,7 +630,7 @@ export function MapView() {
       ref={elRef}
       className="map"
       role="application"
-      aria-label="Area foto. Scroll untuk zoom, seret untuk geser. Pintasan: V pilih, R referensi, D jarak, P polyline, A luas, L pipa, Esc batal."
+      aria-label="Area foto. Scroll untuk zoom, seret untuk geser. Pintasan: V pilih, R referensi, D jarak, P polyline, A luas, S sudut, L pipa, K verifikasi, Esc batal."
       data-tool={tool}
     />
   )

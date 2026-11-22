@@ -1,4 +1,4 @@
-import { FolderOpen, ImagePlus, Save, MousePointer2, Ruler, Spline, Hexagon, Crosshair, ZoomIn, ZoomOut, Maximize, RotateCcw, RotateCw, Compass, Route, Undo2, Redo2 } from 'lucide-react'
+import { FolderOpen, ImagePlus, Save, MousePointer2, Ruler, Spline, Hexagon, Crosshair, ZoomIn, ZoomOut, Maximize, RotateCcw, RotateCw, Compass, Route, Undo2, Redo2, Printer, Magnet, Triangle } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useStore, useHud, type Tool } from '../store'
 import { mapApi } from './mapApi'
@@ -44,6 +44,7 @@ export function Toolbar({ onOpenImage, onOpenProject, onSave }: Props) {
   const name = useStore((s) => s.project.project.name)
   const zoom = useHud((s) => s.zoomPct)
   const rot = useHud((s) => s.rotationDeg)
+  const snapOn = useStore((s) => s.snapOn)
   const canUndo = useStore((s) => s.past.length > 0)
   const canRedo = useStore((s) => s.future.length > 0)
   const api = () => mapApi.current
@@ -62,6 +63,7 @@ export function Toolbar({ onOpenImage, onOpenProject, onSave }: Props) {
       <div className="group" role="group" aria-label="Berkas">
         <button type="button" className="btn" onClick={onOpenImage}><ImagePlus size={16} aria-hidden /> Foto</button>
         <button type="button" className="btn" onClick={onOpenProject}><FolderOpen size={16} aria-hidden /> Buka</button>
+        <button type="button" className="btn" onClick={() => useStore.getState().openDialog('print')} disabled={!hasImage}><Printer size={16} aria-hidden /> Cetak</button>
         <button type="button" className="btn primary" onClick={onSave} disabled={!hasImage}>
           <Save size={16} aria-hidden /> Simpan{dirty ? ' •' : ''}
         </button>
@@ -72,9 +74,11 @@ export function Toolbar({ onOpenImage, onOpenProject, onSave }: Props) {
         <ToolBtn id="distance" label="Jarak" keyHint="D" icon={<Ruler size={16} aria-hidden />} needsScale />
         <ToolBtn id="polyline" label="Polyline" keyHint="P" icon={<Spline size={16} aria-hidden />} needsScale />
         <ToolBtn id="area" label="Luas" keyHint="A" icon={<Hexagon size={16} aria-hidden />} needsScale />
+        <ToolBtn id="angle" label="Sudut" keyHint="S" icon={<Triangle size={16} aria-hidden />} needsScale />
         <ToolBtn id="pipe" label="Pipa" keyHint="L" icon={<Route size={16} aria-hidden />} needsScale />
       </div>
       <div className="group" role="group" aria-label="Riwayat">
+        <button type="button" className="icon-btn" aria-pressed={snapOn} aria-label="Snap ke titik dan garis" title="Snap ke titik dan garis" onClick={() => useStore.getState().setSnap(!snapOn)}><Magnet size={18} aria-hidden /></button>
         <IconBtn label="Urungkan (Ctrl+Z)" icon={<Undo2 size={18} aria-hidden />} onClick={() => useStore.getState().undo()} disabled={!canUndo} />
         <IconBtn label="Ulangi (Ctrl+Shift+Z)" icon={<Redo2 size={18} aria-hidden />} onClick={() => useStore.getState().redo()} disabled={!canRedo} />
       </div>

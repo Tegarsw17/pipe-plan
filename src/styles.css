@@ -158,3 +158,43 @@ table.compact td small { display: block; color: var(--muted-fg); font-size: 11px
   .tool kbd { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Tahap 3: input panjang, badge, peringatan, cetak */
+.length-input { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 16px rgba(15, 23, 42, 0.18); z-index: 5; }
+.length-input label { font-size: 12px; color: var(--muted-fg); }
+.length-input input { width: 90px; min-height: 32px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; font-family: var(--mono); }
+.length-input .unit { font-family: var(--mono); color: var(--muted-fg); }
+.badge.high { background: #d1fae5; color: #065f46; }
+.badge.est { background: #ffedd5; color: #9a3412; }
+.kv dd.plain { font-family: var(--font); font-size: 13px; }
+.kv dd.ver.ok { color: #047857; font-weight: 600; }
+.kv dd.ver.warn { color: #b45309; font-weight: 600; }
+.kv dd.ver.bad { color: var(--danger); font-weight: 600; }
+.warnings { margin: 8px 0; padding: 8px 10px 8px 26px; background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 6px; font-size: 12px; color: #7c2d12; }
+.warnings li + li { margin-top: 4px; }
+.result { margin: 8px 0; font-size: 15px; }
+.icon-btn[aria-pressed='true'] { background: var(--muted); color: var(--primary); border-color: var(--border); }
+
+.print-root { position: fixed; inset: 0; z-index: 40; background: #e5e9ef; }
+.print-ui { display: grid; grid-template-columns: 340px 1fr; height: 100%; }
+.print-settings { display: flex; flex-direction: column; gap: 10px; padding: 14px; overflow: auto; background: var(--card); border-right: 1px solid var(--border); }
+.print-settings h3 { margin: 6px 0 0; font-size: 13px; color: var(--primary); }
+.print-scale { margin: 0; padding: 6px 10px; background: var(--muted); border-radius: 6px; }
+.print-preview { overflow: auto; padding: 16px; }
+.sheet-box { margin: 0 auto; box-shadow: 0 4px 24px rgba(15, 23, 42, 0.25); background: #fff; }
+.print-sheet { transform-origin: top left; background: #fff; }
+.print-svg { display: block; }
+
+@media print {
+  html, body, #root { height: auto !important; overflow: visible !important; background: #fff !important; }
+  #root > .app, .toasts, dialog { display: none !important; }
+  .print-root { position: static !important; background: #fff !important; }
+  .print-ui { display: block !important; }
+  .print-settings { display: none !important; }
+  .print-preview { overflow: visible !important; padding: 0 !important; }
+  .sheet-box { width: auto !important; height: auto !important; margin: 0 !important; box-shadow: none !important; }
+  .print-sheet { transform: none !important; break-inside: avoid; page-break-after: avoid; overflow: hidden; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+@media (max-width: 860px) { .print-ui { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } .print-settings { max-height: 45vh; } }
+.print-settings .field input, .print-settings .field select { min-width: 0; width: 100%; }

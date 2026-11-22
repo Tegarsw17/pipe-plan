@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { calibrateFromReference, CalibrationError } from '../lib/calibration'
-import { dist } from '../lib/geometry'
+import { dist, UNIT_TO_M } from '../lib/geometry'
+import { activeCalibration } from '../lib/calibration'
 import type { LengthUnit } from '../lib/types'
 import { uid, useStore } from '../store'
 
 export function CalibrateDialog() {
   const pending = useStore((s) => s.pendingRef)
+  const cal = useStore((s) => activeCalibration(s.project.calibrations))
+  const verify = pending?.mode === 'verify'
+  const measuredM = pending && cal ? dist(pending.p1, pending.p2) * cal.meters_per_px : 0
   const ref = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState('')
@@ -29,6 +33,14 @@ export function CalibrateDialog() {
     e.preventDefault()
     if (!pending) return
     const num = Number(value.replace(',', '.'))
+    if (verify && pending) {
+      if (!(num > 0)) { setError('Panjang nyata harus berupa angka lebih dari 0.'); return }
+      const known = num * UNIT_TO_M[unit]
+      const diff = ((measuredM - known) / known) * 100
+      useStore.getState().addVerificationResult({ id: uid('ver'), points_px: [pending.p1, pending.p2], measured_m: measuredM, known_m: known })
+      useStore.getState().setNotice({ kind: Math.abs(diff) > 5 ? 'error' : 'info', text: `Verifikasi: terukur ${measuredM.toFixed(2).replace('.', ',')} m, selisih ${diff >= 0 ? '+' : ''}${diff.toFixed(1).replace('.', ',')}% dari ${known.toFixed(2).replace('.', ',')} m.` })
+      return
+    }
     try {
       const c = calibrateFromReference(pending.p1, pending.p2, num, unit, uid('cal'))
       useStore.getState().addCalibration(c)
@@ -41,9 +53,11 @@ export function CalibrateDialog() {
   return (
     <dialog ref={ref} className="dialog" aria-labelledby="cal-title" onCancel={(e) => { e.preventDefault(); cancel() }}>
       <form onSubmit={submit} noValidate>
-        <h2 id="cal-title">Panjang garis referensi</h2>
+        <h2 id="cal-title">{verify ? 'Verifikasi dengan objek kedua' : 'Panjang garis referensi'}</h2>
         <p className="muted">
-          Garis yang Anda tarik sepanjang {pending ? dist(pending.p1, pending.p2).toFixed(1).replace('.', ',') : 0} piksel. Berapa panjang aslinya di lapangan?
+          {verify
+            ? `Aplikasi mengukur garis ini ${measuredM.toFixed(2).replace('.', ',')} m. Berapa panjang aslinya?`
+            : `Garis yang Anda tarik sepanjang ${pending ? dist(pending.p1, pending.p2).toFixed(1).replace('.', ',') : 0} piksel. Berapa panjang aslinya di lapangan?`}
         </p>
         <div className="row">
           <label className="field grow">
@@ -64,7 +78,7 @@ export function CalibrateDialog() {
         <p className="hint">Pakai objek yang lurus, sebidang dengan tanah, dan sepanjang mungkin. Semakin panjang, semakin akurat.</p>
         <div className="actions">
           <button type="button" className="btn" onClick={cancel}>Batal</button>
-          <button type="submit" className="btn primary">Simpan skala</button>
+          <button type="submit" className="btn primary">{verify ? 'Hitung selisih' : 'Simpan skala'}</button>
         </div>
       </form>
     </dialog>

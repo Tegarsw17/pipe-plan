@@ -1,15 +1,19 @@
 import { create } from 'zustand'
-import type { Calibration, ImageInfo, Measurement, NodeType, PipeNode, PipeType, Project, ProjectSettings, Pt } from './lib/types'
+import type { Calibration, ImageInfo, Measurement, NodeType, PipeNode, PipeType, PrintLayout, Project, ProjectSettings, Pt } from './lib/types'
 import { newProject } from './lib/project'
-import { activateCalibration } from './lib/calibration'
+import { activateCalibration, activeCalibration } from './lib/calibration'
+import { addVerification } from './lib/scale'
 import { addNode, addSegment, deleteNode, deleteSegment, moveNode, nodeById, projectOnSegment, setNodeType, setSegmentType, splitSegment } from './lib/pipes'
 
-export type Tool = 'select' | 'reference' | 'distance' | 'polyline' | 'area' | 'pipe'
+export type Tool = 'select' | 'reference' | 'verify' | 'distance' | 'polyline' | 'area' | 'angle' | 'pipe' | 'printarea'
 
 export interface PendingReference {
   p1: Pt
   p2: Pt
+  mode: 'calibrate' | 'verify'
 }
+
+export type DialogName = 'print' | 'exif' | null
 
 const HISTORY_LIMIT = 100
 
@@ -24,6 +28,8 @@ interface State {
   activePipeTypeId: string | null
   /** Node terakhir pada rantai pipa yang sedang digambar. */
   pipeChain: string | null
+  snapOn: boolean
+  dialog: DialogName
   notice: { kind: 'info' | 'error'; text: string } | null
   dirty: boolean
   past: Project[]
@@ -33,7 +39,13 @@ interface State {
   select: (id: string | null) => void
   setNotice: (n: State['notice']) => void
   loadProject: (p: Project, image: Blob | null) => void
-  loadImage: (blob: Blob, info: ImageInfo) => void
+  loadImage: (blob: Blob, info: ImageInfo, calibration?: Calibration | null) => void
+  setSnap: (on: boolean) => void
+  openDialog: (d: DialogName) => void
+  addVerificationResult: (v: { id: string; points_px: [Pt, Pt]; measured_m: number; known_m: number }) => void
+  setPrintLayout: (patch: Partial<PrintLayout>) => void
+  /** Ubah pengaturan cetak tanpa menambah riwayat undo (dipakai saat mengetik di dialog cetak). */
+  patchPrintLayout: (patch: Partial<PrintLayout>) => void
   setProjectName: (name: string) => void
   setPendingRef: (p: PendingReference | null) => void
   addCalibration: (c: Calibration) => void
@@ -86,6 +98,8 @@ export const useStore = create<State>((set, get) => {
     pendingRef: null,
     activePipeTypeId: firstType(newProject()),
     pipeChain: null,
+    snapOn: true,
+    dialog: null,
     notice: null,
     dirty: false,
     ...resetHistory,
@@ -111,17 +125,35 @@ export const useStore = create<State>((set, get) => {
       })
     },
 
-    loadImage: (blob, info) => {
+    loadImage: (blob, info, calibration) => {
       const prev = get().imageUrl
       if (prev) URL.revokeObjectURL(prev)
       // Foto baru = skala baru: kalibrasi dan gambar lama tidak berlaku. Katalog dan pengaturan dipertahankan.
       const old = get().project
       const base = newProject(old.project.name)
-      const project = { ...base, image: info, pipe_types: old.pipe_types, settings: old.settings }
+      const project: Project = {
+        ...base,
+        image: info,
+        pipe_types: old.pipe_types,
+        settings: old.settings,
+        calibrations: calibration ? [calibration] : [],
+        print_layout: { ...old.print_layout, bbox_px: null, north_deg: 0, title_block: { ...old.print_layout.title_block, project_name: old.project.name } },
+      }
       set({ project, imageBlob: blob, imageUrl: URL.createObjectURL(blob), tool: 'select', selectedId: null, pendingRef: null, pipeChain: null, dirty: true, ...resetHistory })
     },
 
     setProjectName: (name) => set((s) => ({ project: touch({ ...s.project, project: { ...s.project.project, name } }), dirty: true })),
+    setSnap: (snapOn) => set({ snapOn }),
+    openDialog: (dialog) => set({ dialog }),
+    addVerificationResult: (v) =>
+      commit((p) => {
+        const cur = activeCalibration(p.calibrations)
+        if (!cur) return p
+        const next = addVerification(cur, v)
+        return { ...p, calibrations: p.calibrations.map((c) => (c.id === cur.id ? next : c)) }
+      }, { pendingRef: null, tool: 'select' }),
+    patchPrintLayout: (patch) => set((s) => ({ project: touch({ ...s.project, print_layout: { ...s.project.print_layout, ...patch } }), dirty: true })),
+    setPrintLayout: (patch) => commit((p) => ({ ...p, print_layout: { ...p.print_layout, ...patch } })),
     setPendingRef: (pendingRef) => set({ pendingRef }),
 
     addCalibration: (c) => commit((p) => ({ ...p, calibrations: activateCalibration(p.calibrations, c) }), { pendingRef: null, tool: 'select' }),
@@ -263,6 +295,8 @@ interface Hud {
   cursor: Pt | null
   zoomPct: number
   rotationDeg: number
+  /** Jumlah titik pada gambar yang sedang dibuat (0 = tidak sedang menggambar). */
+  drawCount: number
   set: (p: Partial<Omit<Hud, 'set'>>) => void
 }
-export const useHud = create<Hud>((set) => ({ cursor: null, zoomPct: 100, rotationDeg: 0, set: (p) => set(p) }))
+export const useHud = create<Hud>((set) => ({ cursor: null, zoomPct: 100, rotationDeg: 0, drawCount: 0, set: (p) => set(p) }))

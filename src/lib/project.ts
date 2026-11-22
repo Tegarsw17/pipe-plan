@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { SCHEMA_VERSION, type Project, type PipeType } from './types'
+import { SCHEMA_VERSION, type Project, type PipeType, type PrintLayout } from './types'
 import { mmToNominalInch } from './inch'
 
 export class ProjectFileError extends Error {}
@@ -16,8 +16,20 @@ export function newProject(name = 'Proyek baru'): Project {
     pipe_nodes: [],
     pipe_segments: [],
     settings: { waste_pct: 10, snap_elbow: true },
+    print_layout: defaultPrintLayout(name),
   }
 }
+
+export const defaultPrintLayout = (name = ''): PrintLayout => ({
+  paper_size: 'A3',
+  orientation: 'landscape',
+  scale_denominator: null,
+  bbox_px: null,
+  title_block: { project_name: name, location: '', date: new Date().toISOString().slice(0, 10), drawn_by: '', checked_by: '', sheet_no: '1/1', notes: '' },
+  show_bom: true,
+  show_legend: true,
+  north_deg: 0,
+})
 
 export const defaultLayers = () => [
   { id: 'layer-ukur', name: 'Pengukuran', kind: 'measure' as const, color: '#2563EB', visible: true, locked: false },
@@ -58,6 +70,7 @@ export function migrate(p: Project): Project {
     pipe_nodes: p.pipe_nodes ?? [],
     pipe_segments: p.pipe_segments ?? [],
     settings: { ...base.settings, ...(p.settings ?? {}) },
+    print_layout: { ...defaultPrintLayout(p.project.name), ...(p.print_layout ?? {}), title_block: { ...defaultPrintLayout(p.project.name).title_block, ...(p.print_layout?.title_block ?? {}) } },
   }
 }
 

@@ -35,7 +35,7 @@ describe('berkas proyek', () => {
     p.measurements.push({ id: 'm1', layer_id: 'layer-ukur', type: 'distance', points_px: [[0, 0], [1, 1]], label: '' })
     const blob = await saveProjectZip(p, new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }))
     const back = await openProjectZip(blob)
-    expect(back.project.project.schema_version).toBe(3)
+    expect(back.project.project.schema_version).toBe(4)
     expect(back.project.measurements).toHaveLength(1)
     expect(back.image?.size).toBe(3)
   })

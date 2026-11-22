@@ -107,7 +107,7 @@ describe('migrasi', () => {
   it('proyek v1 naik ke v3 dengan katalog, layer pipa, dan pengaturan', () => {
     const v1 = { project: { schema_version: 1, name: 'x', location: '', created_at: '', updated_at: '' }, image: null, calibrations: [], layers: [{ id: 'layer-ukur', name: 'Pengukuran', kind: 'measure', color: '#000', visible: true, locked: false }], measurements: [] } as unknown as Project
     const m = migrate(v1)
-    expect(m.project.schema_version).toBe(3)
+    expect(m.project.schema_version).toBe(4)
     expect(m.layers.some((l) => l.kind === 'pipe')).toBe(true)
     expect(m.pipe_types.length).toBeGreaterThan(0)
     expect(m.settings.waste_pct).toBe(10)

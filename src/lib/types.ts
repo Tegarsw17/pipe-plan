@@ -1,7 +1,7 @@
 /** Titik dalam koordinat piksel gambar: x ke kanan, y ke bawah (asal di kiri-atas). */
 export type Pt = [number, number]
 
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 export type LengthUnit = 'm' | 'cm' | 'mm' | 'ft'
 
@@ -25,6 +25,15 @@ export interface ImageInfo {
   geotransform: number[] | null
 }
 
+export interface Verification {
+  id: string
+  points_px: [Pt, Pt]
+  measured_m: number
+  known_m: number
+  /** (terukur - sebenarnya) / sebenarnya x 100; positif = terukur kelebihan. */
+  diff_pct: number
+}
+
 export interface Calibration {
   id: string
   method: 'reference' | 'exif' | 'geotiff'
@@ -35,6 +44,9 @@ export interface Calibration {
   accuracy_level: AccuracyLevel
   error_pct: number | null
   is_active: boolean
+  verifications?: Verification[]
+  /** Catatan untuk pengguna, mis. asal skala atau peringatan. */
+  notes?: string[]
 }
 
 export interface Layer {
@@ -46,7 +58,7 @@ export interface Layer {
   locked: boolean
 }
 
-export type MeasureType = 'distance' | 'polyline' | 'area'
+export type MeasureType = 'distance' | 'polyline' | 'area' | 'angle'
 
 export interface Measurement {
   id: string
@@ -91,6 +103,32 @@ export interface ProjectSettings {
   snap_elbow: boolean
 }
 
+export type PaperSize = 'A4' | 'A3' | 'A2' | 'A1'
+
+export interface TitleBlock {
+  project_name: string
+  location: string
+  date: string
+  drawn_by: string
+  checked_by: string
+  sheet_no: string
+  notes: string
+}
+
+export interface PrintLayout {
+  paper_size: PaperSize
+  orientation: 'portrait' | 'landscape'
+  /** null = pas ke halaman (skala dihitung, tetap dicantumkan di lembar). */
+  scale_denominator: number | null
+  /** [x0, y0, x1, y1] piksel gambar; null = seluruh foto. */
+  bbox_px: [number, number, number, number] | null
+  title_block: TitleBlock
+  show_bom: boolean
+  show_legend: boolean
+  /** Arah utara terhadap sisi atas gambar, derajat searah jarum jam. */
+  north_deg: number
+}
+
 export interface Project {
   project: ProjectMeta
   image: ImageInfo | null
@@ -101,4 +139,5 @@ export interface Project {
   pipe_nodes: PipeNode[]
   pipe_segments: PipeSegment[]
   settings: ProjectSettings
+  print_layout: PrintLayout
 }
