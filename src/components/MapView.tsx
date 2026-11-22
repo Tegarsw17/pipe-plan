@@ -10,6 +10,7 @@ import ImageStatic from 'ol/source/ImageStatic'
 import Projection from 'ol/proj/Projection'
 import Draw from 'ol/interaction/Draw'
 import Modify from 'ol/interaction/Modify'
+import Translate from 'ol/interaction/Translate'
 import { defaults as defaultInteractions } from 'ol/interaction/defaults'
 import { defaults as defaultControls } from 'ol/control/defaults'
 import { LineString, MultiPoint, Point, Polygon } from 'ol/geom'
@@ -21,6 +22,8 @@ import type { MeasureType, Pt } from '../lib/types'
 import { measure, fmtArea, fmtLength } from '../lib/geometry'
 import { activeCalibration } from '../lib/calibration'
 import { uid, useHud, useStore, type Tool } from '../store'
+import { fittingsAt, nodeById, pipeName, typeById } from '../lib/pipes'
+import type { Project } from '../lib/types'
 import { mapApi } from './mapApi'
 
 const BLUE = '#2563EB'
@@ -102,6 +105,45 @@ function makeStyle(h: number, getMpp: () => number | null, getSelected: () => st
   }
 }
 
+const FIT_SHORT: Record<string, string> = { elbow: 'E', tee: 'T', cross: '+', reducer: 'R', valve: 'V', cap: 'C', meter: 'M', manhole: 'MH' }
+
+function makePipeStyle(h: number, getMpp: () => number | null, getSelected: () => string | null, getProject: () => Project): StyleLike {
+  return (feature) => {
+    const kind = feature.get('kind') as 'segment' | 'node'
+    const id = feature.get('pid') as string
+    const selected = id === getSelected()
+    const proj = getProject()
+    if (kind === 'segment') {
+      const seg = proj.pipe_segments.find((x) => x.id === id)
+      const t = seg ? typeById(proj, seg.pipe_type_id) : undefined
+      const color = selected ? ORANGE : (t?.color ?? BLUE)
+      const width = Math.min(3 + (t?.diameter_mm ?? 60) / 40, 8) + (selected ? 1.5 : 0)
+      const styles: Style[] = [new Style({ stroke: new Stroke({ color: '#ffffff', width: width + 3 }) }), new Style({ stroke: new Stroke({ color, width }) })]
+      const g = feature.getGeometry()
+      const mpp = getMpp()
+      if (g instanceof LineString && seg) {
+        const [a, b] = g.getCoordinates()
+        const px = Math.hypot(b[0] - a[0], b[1] - a[1])
+        const text = mpp ? `${pipeName(t)} · ${fmtLength(px * mpp)}` : pipeName(t)
+        styles.push(new Style({ geometry: new Point([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]), text: labelText(text, NAVY, 11) }))
+      }
+      return styles
+    }
+    const node = nodeById(proj, id)
+    if (!node) return []
+    const fits = fittingsAt(proj, node)
+    const special = node.node_type !== 'junction' && ['valve', 'cap', 'meter', 'manhole'].includes(node.node_type)
+    const color = selected ? ORANGE : special ? '#DC2626' : NAVY
+    const styles: Style[] = [new Style({ image: new CircleStyle({ radius: special ? 7 : 5, fill: new Fill({ color: special ? color : '#ffffff' }), stroke: new Stroke({ color, width: 2 }) }) })]
+    if (fits.length > 0) {
+      const txt = fits.map((f) => FIT_SHORT[f.kind] + (f.angle_deg ? String(f.angle_deg) : '')).join(' ')
+      styles.push(new Style({ text: new Text({ text: txt, offsetY: -16, font: '600 11px "Fira Sans", sans-serif', fill: new Fill({ color: color }), stroke: new Stroke({ color: '#fff', width: 3 }) }) }))
+    }
+    void h
+    return styles
+  }
+}
+
 const referenceStyle = (dashed: boolean): Style[] => [
   new Style({ stroke: new Stroke({ color: GREEN, width: 2, lineDash: dashed ? [8, 6] : undefined }) }),
   new Style({ image: new CircleStyle({ radius: 4, fill: new Fill({ color: '#fff' }), stroke: new Stroke({ color: GREEN, width: 2 }) }), geometry: (f) => new MultiPoint((f.getGeometry() as LineString).getCoordinates()) }),
@@ -116,6 +158,10 @@ export function MapView() {
     refSource: VectorSource
     modify: Modify
     modifyFeatures: Collection<Feature>
+    pipeSource: VectorSource
+    previewSource: VectorSource
+    translateFeatures: Collection<Feature>
+    translate: Translate
     draw: Draw | null
   } | null>(null)
 
@@ -126,11 +172,15 @@ export function MapView() {
   const tool = useStore((s) => s.tool)
   const selectedId = useStore((s) => s.selectedId)
   const pendingRef = useStore((s) => s.pendingRef)
+  const project = useStore((s) => s.project)
+  const pipeChain = useStore((s) => s.pipeChain)
 
   const mpp = activeCalibration(calibrations)?.meters_per_px ?? null
   const mppRef = useRef(mpp)
   const selRef = useRef(selectedId)
   mppRef.current = mpp
+  const projRef = useRef(project)
+  projRef.current = project
   selRef.current = selectedId
 
   // Buat peta sekali per foto (komponen di-remount lewat key di App).
@@ -143,6 +193,10 @@ export function MapView() {
 
     const measureSource = new VectorSource()
     const refSource = new VectorSource()
+    const pipeSource = new VectorSource()
+    const previewSource = new VectorSource()
+    const translateFeatures = new Collection<Feature>()
+    const translate = new Translate({ features: translateFeatures, hitTolerance: 6 })
     const style = makeStyle(h, () => mppRef.current, () => selRef.current)
     const modifyFeatures = new Collection<Feature>()
     const modify = new Modify({
@@ -163,11 +217,13 @@ export function MapView() {
     const map = new OlMap({
       target: elRef.current,
       controls: defaultControls({ zoom: false, rotate: false, attribution: false }),
-      interactions: defaultInteractions({ doubleClickZoom: false, altShiftDragRotate: false, pinchRotate: false }).extend([modify]),
+      interactions: defaultInteractions({ doubleClickZoom: false, altShiftDragRotate: false, pinchRotate: false }).extend([modify, translate]),
       layers: [
         new ImageLayer({ source: new ImageStatic({ url: imageUrl, projection, imageExtent: extent, interpolate: false }) }),
         new VectorLayer({ source: refSource, style: (f) => referenceStyle(f.get('dashed') === true) }),
+        new VectorLayer({ source: pipeSource, style: makePipeStyle(h, () => mppRef.current, () => selRef.current, () => projRef.current) }),
         new VectorLayer({ source: measureSource, style }),
+        new VectorLayer({ source: previewSource, style: new Style({ stroke: new Stroke({ color: ORANGE, width: 2, lineDash: [6, 6] }) }) }),
       ],
       view,
     })
@@ -198,11 +254,51 @@ export function MapView() {
     // Klik di mode Pilih memilih objek pengukuran.
     map.on('singleclick', (e) => {
       if (useStore.getState().tool !== 'select') return
-      const hit = map.forEachFeatureAtPixel(e.pixel, (f) => f, { layerFilter: (l) => l.getSource() === measureSource, hitTolerance: 6 })
-      useStore.getState().select((hit?.get('mid') as string | undefined) ?? null)
+      const hits: Feature[] = []
+      map.forEachFeatureAtPixel(e.pixel, (f) => { if (f instanceof Feature && !f.get('locked')) hits.push(f) }, { layerFilter: (l) => l.getSource() === measureSource || l.getSource() === pipeSource, hitTolerance: 6 })
+      // Node didahulukan dari segmen, supaya titik di ujung pipa mudah dipilih.
+      const pick = hits.find((f) => f.get('kind') === 'node') ?? hits[0]
+      useStore.getState().select((pick?.get('mid') ?? pick?.get('pid') ?? null) as string | null)
     })
 
-    ctx.current = { map, h, measureSource, refSource, modify, modifyFeatures, draw: null }
+    // Tool pipa: klik menambah node/segmen; pratinjau garis mengikuti kursor.
+    map.on('click', (e) => {
+      if (useStore.getState().tool !== 'pipe') return
+      useStore.getState().pipeClick(fromOl(e.coordinate, h), 12 * (view.getResolution() ?? 1))
+    })
+    map.on('pointermove', (e) => {
+      const st = useStore.getState()
+      previewSource.clear()
+      if (st.tool !== 'pipe' || !st.pipeChain) return
+      const from = nodeById(st.project, st.pipeChain)
+      if (from) previewSource.addFeature(new Feature(new LineString([toOl(from.point_px, h), e.coordinate])))
+    })
+
+    translate.on('translating', (e) => {
+      const f = e.features.item(0)
+      const id = f?.get('pid') as string | undefined
+      const g = f?.getGeometry()
+      if (!id || !(g instanceof Point)) return
+      const c = g.getCoordinates()
+      const proj = projRef.current
+      for (const sf of pipeSource.getFeatures()) {
+        if (sf.get('kind') !== 'segment') continue
+        const seg = proj.pipe_segments.find((x) => x.id === sf.get('pid'))
+        if (!seg || (seg.from_node_id !== id && seg.to_node_id !== id)) continue
+        const other = nodeById(proj, seg.from_node_id === id ? seg.to_node_id : seg.from_node_id)
+        if (!other) continue
+        const o = toOl(other.point_px, h)
+        sf.setGeometry(new LineString(seg.from_node_id === id ? [c, o] : [o, c]))
+      }
+    })
+    translate.on('translateend', (e) => {
+      const f = e.features.item(0)
+      const id = f?.get('pid') as string | undefined
+      const g = f?.getGeometry()
+      if (id && g instanceof Point) useStore.getState().moveNodeTo(id, fromOl(g.getCoordinates(), h))
+    })
+
+    ctx.current = { map, h, measureSource, refSource, modify, modifyFeatures, pipeSource, previewSource, translateFeatures, translate, draw: null }
 
     mapApi.current = {
       fit,
@@ -237,14 +333,46 @@ export function MapView() {
     if (!c) return
     c.measureSource.clear()
     c.modifyFeatures.clear()
+    const layerOf = (id: string) => projRef.current.layers.find((l) => l.id === id)
     for (const m of measurements) {
+      const layer = layerOf(m.layer_id)
+      if (layer && !layer.visible) continue
       const coords = m.points_px.map((p) => toOl(p, c.h))
       const geom = m.type === 'area' ? new Polygon([[...coords, coords[0]]]) : new LineString(coords)
-      const f = new Feature({ geometry: geom, mid: m.id, mtype: m.type })
+      const f = new Feature({ geometry: geom, mid: m.id, mtype: m.type, locked: !!layer?.locked })
       c.measureSource.addFeature(f)
-      if (m.id === selectedId && tool === 'select') c.modifyFeatures.push(f)
+      if (m.id === selectedId && tool === 'select' && !layer?.locked) c.modifyFeatures.push(f)
     }
-  }, [measurements, mpp, selectedId, tool, image, imageUrl])
+  }, [measurements, project.layers, mpp, selectedId, tool, image, imageUrl])
+
+  // Sinkronkan graf pipa dengan data proyek.
+  useEffect(() => {
+    const c = ctx.current
+    if (!c) return
+    c.pipeSource.clear()
+    c.translateFeatures.clear()
+    const layerOf = (id: string) => project.layers.find((l) => l.id === id)
+    for (const s of project.pipe_segments) {
+      const layer = layerOf(s.layer_id)
+      if (layer && !layer.visible) continue
+      const a = nodeById(project, s.from_node_id)
+      const b = nodeById(project, s.to_node_id)
+      if (!a || !b) continue
+      c.pipeSource.addFeature(new Feature({ geometry: new LineString([toOl(a.point_px, c.h), toOl(b.point_px, c.h)]), kind: 'segment', pid: s.id, locked: !!layer?.locked }))
+    }
+    for (const n of project.pipe_nodes) {
+      const layer = layerOf(n.layer_id)
+      if (layer && !layer.visible) continue
+      const f = new Feature({ geometry: new Point(toOl(n.point_px, c.h)), kind: 'node', pid: n.id, locked: !!layer?.locked })
+      c.pipeSource.addFeature(f)
+      if (n.id === selectedId && tool === 'select' && !layer?.locked) c.translateFeatures.push(f)
+    }
+  }, [project, mpp, selectedId, tool, image, imageUrl])
+
+  // Pratinjau pipa hilang saat rantai selesai.
+  useEffect(() => {
+    if (!pipeChain) ctx.current?.previewSource.clear()
+  }, [pipeChain])
 
   // Garis referensi: yang sedang menunggu input dan yang dipakai kalibrasi aktif.
   useEffect(() => {
@@ -265,11 +393,12 @@ export function MapView() {
     const c = ctx.current
     if (!c) return
     c.modify.setActive(tool === 'select')
+    c.translate.setActive(tool === 'select')
     if (c.draw) {
       c.map.removeInteraction(c.draw)
       c.draw = null
     }
-    if (tool === 'select') return
+    if (tool === 'select' || tool === 'pipe') return
     const type: MeasureType | 'reference' = tool
     const isArea = type === 'area'
     const h = c.h
@@ -307,22 +436,34 @@ export function MapView() {
       const t = e.target as HTMLElement
       if (t.closest('input, textarea, select, dialog, [role="dialog"]')) return
       const st = useStore.getState()
-      const keyTool: Record<string, Tool> = { v: 'select', r: 'reference', d: 'distance', p: 'polyline', a: 'area' }
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && keyTool[e.key.toLowerCase()]) {
+      const keyTool: Record<string, Tool> = { v: 'select', r: 'reference', d: 'distance', p: 'polyline', a: 'area', l: 'pipe' }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) st.redo()
+        else st.undo()
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        st.redo()
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && keyTool[e.key.toLowerCase()]) {
         const next = keyTool[e.key.toLowerCase()]
         if (next !== 'select' && next !== 'reference' && !mppRef.current) {
           st.setNotice({ kind: 'error', text: 'Kalibrasi skala dulu (tombol R) sebelum mengukur.' })
           return
         }
         st.setTool(next)
+      } else if (e.key === 'Escape' && st.tool === 'pipe' && st.pipeChain) {
+        st.endPipeChain()
       } else if (e.key === 'Escape') {
         mapApi.current?.abortDrawing()
         st.setPendingRef(null)
         st.setTool('select')
         st.select(null)
-      } else if (e.key === 'Enter') mapApi.current?.finishDrawing()
-      else if (e.key === 'Backspace' && st.tool !== 'select') { e.preventDefault(); mapApi.current?.undoLastPoint() }
-      else if ((e.key === 'Delete' || e.key === 'Backspace') && st.selectedId) st.removeMeasurement(st.selectedId)
+      } else if (e.key === 'Enter') {
+        if (st.tool === 'pipe') st.endPipeChain()
+        else mapApi.current?.finishDrawing()
+      }
+      else if (e.key === 'Backspace' && st.tool !== 'select' && st.tool !== 'pipe') { e.preventDefault(); mapApi.current?.undoLastPoint() }
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && st.selectedId) st.deleteSelected()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -333,7 +474,7 @@ export function MapView() {
       ref={elRef}
       className="map"
       role="application"
-      aria-label="Area foto. Scroll untuk zoom, seret untuk geser. Pintasan: V pilih, R referensi, D jarak, P polyline, A luas, Esc batal."
+      aria-label="Area foto. Scroll untuk zoom, seret untuk geser. Pintasan: V pilih, R referensi, D jarak, P polyline, A luas, L pipa, Esc batal."
       data-tool={tool}
     />
   )

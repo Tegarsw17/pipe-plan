@@ -1,4 +1,4 @@
-import { FolderOpen, ImagePlus, Save, MousePointer2, Ruler, Spline, Hexagon, Crosshair, ZoomIn, ZoomOut, Maximize, RotateCcw, RotateCw, Compass } from 'lucide-react'
+import { FolderOpen, ImagePlus, Save, MousePointer2, Ruler, Spline, Hexagon, Crosshair, ZoomIn, ZoomOut, Maximize, RotateCcw, RotateCw, Compass, Route, Undo2, Redo2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useStore, useHud, type Tool } from '../store'
 import { mapApi } from './mapApi'
@@ -44,6 +44,8 @@ export function Toolbar({ onOpenImage, onOpenProject, onSave }: Props) {
   const name = useStore((s) => s.project.project.name)
   const zoom = useHud((s) => s.zoomPct)
   const rot = useHud((s) => s.rotationDeg)
+  const canUndo = useStore((s) => s.past.length > 0)
+  const canRedo = useStore((s) => s.future.length > 0)
   const api = () => mapApi.current
   return (
     <header className="toolbar">
@@ -70,6 +72,11 @@ export function Toolbar({ onOpenImage, onOpenProject, onSave }: Props) {
         <ToolBtn id="distance" label="Jarak" keyHint="D" icon={<Ruler size={16} aria-hidden />} needsScale />
         <ToolBtn id="polyline" label="Polyline" keyHint="P" icon={<Spline size={16} aria-hidden />} needsScale />
         <ToolBtn id="area" label="Luas" keyHint="A" icon={<Hexagon size={16} aria-hidden />} needsScale />
+        <ToolBtn id="pipe" label="Pipa" keyHint="L" icon={<Route size={16} aria-hidden />} needsScale />
+      </div>
+      <div className="group" role="group" aria-label="Riwayat">
+        <IconBtn label="Urungkan (Ctrl+Z)" icon={<Undo2 size={18} aria-hidden />} onClick={() => useStore.getState().undo()} disabled={!canUndo} />
+        <IconBtn label="Ulangi (Ctrl+Shift+Z)" icon={<Redo2 size={18} aria-hidden />} onClick={() => useStore.getState().redo()} disabled={!canRedo} />
       </div>
       <div className="group" role="group" aria-label="Tampilan">
         <IconBtn label="Perkecil" icon={<ZoomOut size={18} aria-hidden />} onClick={() => api()?.zoomBy(1 / 1.5)} disabled={!hasImage} />

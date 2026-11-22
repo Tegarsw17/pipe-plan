@@ -9,8 +9,9 @@ import { useStore } from './store'
 import { ImageError, readImageInfo } from './lib/image'
 import { openProjectZip, ProjectFileError, saveProjectZip } from './lib/project'
 import { autosave, restoreSession } from './lib/storage'
+import { downloadBlob, safeName } from './lib/download'
+import { CatalogDialog } from './components/CatalogDialog'
 
-const safeName = (s: string) => s.trim().replace(/[^\w\-. ]+/g, '_') || 'proyek'
 
 export function App() {
   const imgInput = useRef<HTMLInputElement>(null)
@@ -47,13 +48,10 @@ export function App() {
   const save = useCallback(async () => {
     const { project, imageBlob } = useStore.getState()
     const blob = await saveProjectZip(project, imageBlob)
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `${safeName(project.project.name)}.zip`
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+    const filename = `${safeName(project.project.name)}.zip`
+    downloadBlob(blob, filename)
     useStore.getState().markSaved()
-    useStore.getState().setNotice({ kind: 'info', text: `Tersimpan sebagai ${a.download}. Simpan salinan ke cloud drive Anda secara rutin.` })
+    useStore.getState().setNotice({ kind: 'info', text: `Tersimpan sebagai ${filename}. Simpan salinan ke cloud drive Anda secara rutin.` })
   }, [])
 
   // Pulihkan sesi terakhir dari simpan otomatis.
@@ -125,6 +123,7 @@ export function App() {
       </main>
       <StatusBar />
       <CalibrateDialog />
+      <CatalogDialog />
       <div className="toasts" role="status" aria-live="polite">
         {notice && (
           <div className={`toast ${notice.kind}`}>

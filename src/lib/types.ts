@@ -1,7 +1,7 @@
 /** Titik dalam koordinat piksel gambar: x ke kanan, y ke bawah (asal di kiri-atas). */
 export type Pt = [number, number]
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 export type LengthUnit = 'm' | 'cm' | 'mm' | 'ft'
 
@@ -56,10 +56,48 @@ export interface Measurement {
   label: string
 }
 
+export interface PipeType {
+  id: string
+  material: string
+  diameter_mm: number
+  service: string
+  color: string
+  stock_length_m: number
+}
+
+export type NodeType = 'junction' | 'elbow' | 'tee' | 'reducer' | 'valve' | 'cap' | 'meter' | 'manhole'
+
+export interface PipeNode {
+  id: string
+  layer_id: string
+  point_px: Pt
+  /** 'junction' = otomatis (fitting disarankan dari jumlah dan arah segmen). */
+  node_type: NodeType
+  fitting_angle_deg: number | null
+}
+
+export interface PipeSegment {
+  id: string
+  layer_id: string
+  from_node_id: string
+  to_node_id: string
+  pipe_type_id: string
+  label: string
+}
+
+export interface ProjectSettings {
+  waste_pct: number
+  snap_elbow: boolean
+}
+
 export interface Project {
   project: ProjectMeta
   image: ImageInfo | null
   calibrations: Calibration[]
   layers: Layer[]
   measurements: Measurement[]
+  pipe_types: PipeType[]
+  pipe_nodes: PipeNode[]
+  pipe_segments: PipeSegment[]
+  settings: ProjectSettings
 }

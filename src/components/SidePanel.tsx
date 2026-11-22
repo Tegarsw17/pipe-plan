@@ -1,4 +1,9 @@
-import { Trash2, ShieldCheck, ShieldAlert } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Trash2, ShieldCheck, ShieldAlert, Download } from 'lucide-react'
+import { PipePanel } from './PipePanel'
+import { BomPanel } from './BomPanel'
+import { downloadCsv, safeName } from '../lib/download'
+import { toCsv } from '../lib/pipes'
 import { activeCalibration } from '../lib/calibration'
 import { fmtArea, fmtLength, measure } from '../lib/geometry'
 import { useStore } from '../store'
@@ -47,6 +52,7 @@ function Measurements() {
       {items.length === 0 ? (
         <p className="muted">Belum ada pengukuran. Pilih alat Jarak, Polyline, atau Luas lalu klik di foto. Enter atau klik dua kali untuk selesai.</p>
       ) : (
+        <>
         <ul className="list">
           {items.map((m) => {
             const r = mpp ? measure(m.type, m.points_px, mpp) : null
@@ -79,16 +85,47 @@ function Measurements() {
             )
           })}
         </ul>
+        <button type="button" className="btn small export" onClick={() => exportMeasurements()}><Download size={14} aria-hidden /> Ekspor daftar (CSV)</button>
+        </>
       )}
     </section>
   )
 }
 
+function exportMeasurements() {
+  const { project } = useStore.getState()
+  const mpp = activeCalibration(project.calibrations)?.meters_per_px
+  if (!mpp) return
+  const rows: (string | number | null)[][] = [['Nama', 'Jenis', 'Titik', 'Panjang/keliling (m)', 'Luas (m2)']]
+  for (const m of project.measurements) {
+    const r = measure(m.type, m.points_px, mpp)
+    rows.push([m.label, TYPE_LABEL[m.type], m.points_px.length, r.length_m.toFixed(3), r.area_m2 === null ? '' : r.area_m2.toFixed(3)])
+  }
+  downloadCsv(toCsv(rows), `${safeName(project.project.name)}-pengukuran.csv`)
+}
+
+type Tab = 'ukur' | 'pipa' | 'bom'
+const TABS: [Tab, string][] = [['ukur', 'Ukur'], ['pipa', 'Pipa'], ['bom', 'BOM']]
+
 export function SidePanel() {
+  const [tab, setTab] = useState<Tab>('ukur')
+  const tool = useStore((s) => s.tool)
+  const hasImage = useStore((s) => !!s.project.image)
+  useEffect(() => { if (tool === 'pipe') setTab('pipa') }, [tool])
   return (
     <aside className="side" aria-label="Panel proyek">
-      <Calibration />
-      <Measurements />
+      {hasImage && (
+        <div className="tabs" role="tablist" aria-label="Panel">
+          {TABS.map(([id, label]) => (
+            <button key={id} type="button" role="tab" id={`tab-${id}`} aria-selected={tab === id} aria-controls={`panel-${id}`} onClick={() => setTab(id)}>{label}</button>
+          ))}
+        </div>
+      )}
+      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="panel-body">
+        {tab === 'ukur' && (<><Calibration /><Measurements /></>)}
+        {tab === 'pipa' && hasImage && <PipePanel />}
+        {tab === 'bom' && hasImage && <BomPanel />}
+      </div>
     </aside>
   )
 }

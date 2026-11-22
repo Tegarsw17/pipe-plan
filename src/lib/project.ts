@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { SCHEMA_VERSION, type Project } from './types'
+import { SCHEMA_VERSION, type Project, type PipeType } from './types'
 
 export class ProjectFileError extends Error {}
 
@@ -9,8 +9,42 @@ export function newProject(name = 'Proyek baru'): Project {
     project: { schema_version: SCHEMA_VERSION, name, location: '', created_at: now, updated_at: now },
     image: null,
     calibrations: [],
-    layers: [{ id: 'layer-ukur', name: 'Pengukuran', kind: 'measure', color: '#2563EB', visible: true, locked: false }],
+    layers: defaultLayers(),
     measurements: [],
+    pipe_types: defaultPipeTypes(),
+    pipe_nodes: [],
+    pipe_segments: [],
+    settings: { waste_pct: 10, snap_elbow: true },
+  }
+}
+
+export const defaultLayers = () => [
+  { id: 'layer-ukur', name: 'Pengukuran', kind: 'measure' as const, color: '#2563EB', visible: true, locked: false },
+  { id: 'layer-pipa', name: 'Pipa', kind: 'pipe' as const, color: '#0EA5E9', visible: true, locked: false },
+]
+
+/** Katalog awal; bisa diubah di aplikasi. */
+export const defaultPipeTypes = (): PipeType[] => [
+  { id: 'pt-pvc-63', material: 'PVC', diameter_mm: 63, service: 'Air bersih', color: '#2563EB', stock_length_m: 4 },
+  { id: 'pt-pvc-110', material: 'PVC', diameter_mm: 110, service: 'Air bersih', color: '#0EA5E9', stock_length_m: 4 },
+  { id: 'pt-pvc-160', material: 'PVC', diameter_mm: 160, service: 'Air kotor', color: '#7C3AED', stock_length_m: 4 },
+  { id: 'pt-hdpe-63', material: 'HDPE', diameter_mm: 63, service: 'Air bersih', color: '#059669', stock_length_m: 6 },
+  { id: 'pt-hdpe-110', material: 'HDPE', diameter_mm: 110, service: 'Air bersih', color: '#16A34A', stock_length_m: 6 },
+  { id: 'pt-gi-50', material: 'GI', diameter_mm: 50, service: 'Air bersih', color: '#EA580C', stock_length_m: 6 },
+]
+
+/** Naikkan proyek dari format lama ke versi sekarang. */
+export function migrate(p: Project): Project {
+  const base = newProject()
+  const v = p.project.schema_version
+  return {
+    ...p,
+    project: { ...p.project, schema_version: SCHEMA_VERSION },
+    layers: v < 2 && !p.layers.some((l) => l.kind === 'pipe') ? [...p.layers, base.layers[1]] : p.layers,
+    pipe_types: p.pipe_types ?? base.pipe_types,
+    pipe_nodes: p.pipe_nodes ?? [],
+    pipe_segments: p.pipe_segments ?? [],
+    settings: { ...base.settings, ...(p.settings ?? {}) },
   }
 }
 
@@ -35,7 +69,7 @@ export function checkSchema(raw: unknown): Project {
   if (v > SCHEMA_VERSION) {
     throw new ProjectFileError(`Proyek dibuat dengan format versi ${v}; aplikasi ini baru mendukung sampai versi ${SCHEMA_VERSION}.`)
   }
-  return { ...p, calibrations: p.calibrations ?? [], layers: p.layers ?? [], measurements: p.measurements ?? [] }
+  return migrate({ ...p, calibrations: p.calibrations ?? [], layers: p.layers ?? [], measurements: p.measurements ?? [] })
 }
 
 export async function openProjectZip(file: Blob): Promise<{ project: Project; image: Blob | null }> {

@@ -6,6 +6,10 @@ Aplikasi web statis untuk mengukur jarak, polyline, dan luas di atas foto drone.
 
 **Tahap 1 (Ukur dasar) selesai**: T001–T015. T016 (uji lapangan dengan foto Mini 3 Pro) menunggu foto nyata.
 
+**Tahap 2 (Pipa dan BOM) selesai**: T017–T032. Format proyek naik ke `schema_version` 2; proyek versi 1 otomatis dimigrasi.
+
+Tambahan Tahap 2: katalog pipa (PVC/HDPE/GI awal, bisa diubah dan diimpor dari proyek lain), alat Pipa (`L`) dengan node dan segmen, sambung ke node atau tengah segmen (percabangan), label `Ø110 PVC · 12,45 m`, saran fitting otomatis (elbow, tee, cross, reducer; elbow dibulatkan ke 45°/90°), node khusus (valve, cap, meteran, manhole), geser/sisip/pecah/hapus node dengan graf tetap valid, panel BOM realtime (waste %, jumlah batang) dengan ekspor CSV, ekspor daftar pengukuran CSV, layer tampil/kunci, undo/redo (Ctrl+Z, Ctrl+Shift+Z).
+
 Fitur: buka JPG/PNG, zoom sub-piksel (sampai ±50x), pan, putar, kalibrasi garis referensi, ukur jarak/polyline/luas dengan label realtime, geser/hapus titik, simpan/buka proyek `.zip` (`project.json` + foto, `schema_version` tercatat), simpan otomatis ke IndexedDB.
 
 ## Pakai
@@ -21,7 +25,7 @@ npm run build    # hasil: dist/index.html (satu file)
 
 ## Pintasan
 
-`V` pilih · `R` referensi · `D` jarak · `P` polyline · `A` luas · `Enter` selesai · `Backspace` batalkan titik · `Esc` batal · `Delete` hapus objek · `Alt`+klik titik hapus titik.
+`V` pilih · `R` referensi · `D` jarak · `P` polyline · `A` luas · `L` pipa · `Ctrl+Z` urungkan · `Enter` selesai · `Backspace` batalkan titik · `Esc` batal · `Delete` hapus objek · `Alt`+klik titik hapus titik.
 
 ## Catatan akurasi
 
