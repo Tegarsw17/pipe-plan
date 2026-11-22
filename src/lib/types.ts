@@ -1,7 +1,7 @@
 /** Titik dalam koordinat piksel gambar: x ke kanan, y ke bawah (asal di kiri-atas). */
 export type Pt = [number, number]
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export type LengthUnit = 'm' | 'cm' | 'mm' | 'ft'
 
@@ -59,7 +59,8 @@ export interface Measurement {
 export interface PipeType {
   id: string
   material: string
-  diameter_mm: number
+  /** Diameter nominal dalam inci (3/4, 1 1/2, 4, ...). */
+  diameter_in: number
   service: string
   color: string
   stock_length_m: number

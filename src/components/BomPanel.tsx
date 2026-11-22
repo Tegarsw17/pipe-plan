@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { activeCalibration } from '../lib/calibration'
 import { FITTING_LABEL, bomCsv, computeBom } from '../lib/pipes'
 import { fmtLength } from '../lib/geometry'
+import { fmtDia, fmtInch } from '../lib/inch'
 import { downloadCsv, safeName } from '../lib/download'
 
 const nf = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -39,8 +40,8 @@ export function BomPanel() {
                 <thead><tr><th>Jenis</th><th className="r">Panjang</th><th className="r">Batang</th></tr></thead>
                 <tbody>
                   {bom.pipes.map((r) => (
-                    <tr key={`${r.material}${r.diameter_mm}${r.stock_length_m}`}>
-                      <td>Ø{r.diameter_mm} {r.material}<small>{r.segments} segmen · batang {r.stock_length_m} m</small></td>
+                    <tr key={`${r.material}${r.diameter_in}${r.stock_length_m}`}>
+                      <td>{fmtDia(r.diameter_in)} {r.material}<small>{r.segments} segmen · batang {r.stock_length_m} m</small></td>
                       <td className="r mono">{nf.format(r.length_m)} m<small>{nf.format(r.length_with_waste_m)} m +{waste}%</small></td>
                       <td className="r mono strong">{r.pieces}</td>
                     </tr>
@@ -58,7 +59,7 @@ export function BomPanel() {
                   <tbody>
                     {bom.fittings.map((f, i) => (
                       <tr key={i}>
-                        <td>{FITTING_LABEL[f.kind]}{f.angle_deg ? ` ${f.angle_deg}°` : ''} <small>{f.kind === 'reducer' && f.diameter_small_mm ? `Ø${f.diameter_mm}×${f.diameter_small_mm}` : `Ø${f.diameter_mm}`} {f.material}</small></td>
+                        <td>{FITTING_LABEL[f.kind]}{f.angle_deg ? ` ${f.angle_deg}°` : ''} <small>{f.kind === 'reducer' && f.diameter_small_in ? `Ø${fmtInch(f.diameter_in)}"×${fmtInch(f.diameter_small_in)}"` : fmtDia(f.diameter_in)} {f.material}</small></td>
                         <td className="r mono strong">{f.count}</td>
                       </tr>
                     ))}

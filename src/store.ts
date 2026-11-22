@@ -220,10 +220,10 @@ export const useStore = create<State>((set, get) => {
     importPipeTypes: (list) => {
       let added = 0
       commit((p) => {
-        const have = new Set(p.pipe_types.map((t) => `${t.material}|${t.diameter_mm}|${t.service}`))
+        const have = new Set(p.pipe_types.map((t) => `${t.material}|${t.diameter_in}|${t.service}`))
         const ids = new Set(p.pipe_types.map((t) => t.id))
         const fresh = list
-          .filter((t) => !have.has(`${t.material}|${t.diameter_mm}|${t.service}`))
+          .filter((t) => !have.has(`${t.material}|${t.diameter_in}|${t.service}`))
           .map((t) => (ids.has(t.id) ? { ...t, id: uid('pt') } : t))
         added = fresh.length
         return fresh.length ? { ...p, pipe_types: [...p.pipe_types, ...fresh] } : p

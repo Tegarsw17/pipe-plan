@@ -117,7 +117,7 @@ function makePipeStyle(h: number, getMpp: () => number | null, getSelected: () =
       const seg = proj.pipe_segments.find((x) => x.id === id)
       const t = seg ? typeById(proj, seg.pipe_type_id) : undefined
       const color = selected ? ORANGE : (t?.color ?? BLUE)
-      const width = Math.min(3 + (t?.diameter_mm ?? 60) / 40, 8) + (selected ? 1.5 : 0)
+      const width = Math.min(3 + ((t?.diameter_in ?? 2) * 25.4) / 40, 8) + (selected ? 1.5 : 0)
       const styles: Style[] = [new Style({ stroke: new Stroke({ color: '#ffffff', width: width + 3 }) }), new Style({ stroke: new Stroke({ color, width }) })]
       const g = feature.getGeometry()
       const mpp = getMpp()

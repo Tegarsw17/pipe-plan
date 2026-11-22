@@ -6,9 +6,11 @@ Aplikasi web statis untuk mengukur jarak, polyline, dan luas di atas foto drone.
 
 **Tahap 1 (Ukur dasar) selesai**: T001–T015. T016 (uji lapangan dengan foto Mini 3 Pro) menunggu foto nyata.
 
-**Tahap 2 (Pipa dan BOM) selesai**: T017–T032. Format proyek naik ke `schema_version` 2; proyek versi 1 otomatis dimigrasi.
+**Tahap 2 (Pipa dan BOM) selesai**: T017–T032. Format proyek: `schema_version` 2 menambah data pipa; proyek versi 1 otomatis dimigrasi.
 
-Tambahan Tahap 2: katalog pipa (PVC/HDPE/GI awal, bisa diubah dan diimpor dari proyek lain), alat Pipa (`L`) dengan node dan segmen, sambung ke node atau tengah segmen (percabangan), label `Ø110 PVC · 12,45 m`, saran fitting otomatis (elbow, tee, cross, reducer; elbow dibulatkan ke 45°/90°), node khusus (valve, cap, meteran, manhole), geser/sisip/pecah/hapus node dengan graf tetap valid, panel BOM realtime (waste %, jumlah batang) dengan ekspor CSV, ekspor daftar pengukuran CSV, layer tampil/kunci, undo/redo (Ctrl+Z, Ctrl+Shift+Z).
+Diameter pipa memakai **inci nominal** (3/4", 1 1/2", 4"). Di katalog bisa diketik `3/4`, `1 1/2`, `1-1/2`, atau `2,5`. `schema_version` 3; proyek versi 2 (mm) otomatis dikonversi (mis. 110 mm menjadi 4").
+
+Tambahan Tahap 2: katalog pipa (awal: PVC 3/4"–4", HDPE 2" dan 4", GI 1" dan 2"; bisa diubah dan diimpor dari proyek lain), alat Pipa (`L`) dengan node dan segmen, sambung ke node atau tengah segmen (percabangan), label `Ø4" PVC · 12,45 m`, saran fitting otomatis (elbow, tee, cross, reducer; elbow dibulatkan ke 45°/90°), node khusus (valve, cap, meteran, manhole), geser/sisip/pecah/hapus node dengan graf tetap valid, panel BOM realtime (waste %, jumlah batang) dengan ekspor CSV, ekspor daftar pengukuran CSV, layer tampil/kunci, undo/redo (Ctrl+Z, Ctrl+Shift+Z).
 
 Fitur: buka JPG/PNG, zoom sub-piksel (sampai ±50x), pan, putar, kalibrasi garis referensi, ukur jarak/polyline/luas dengan label realtime, geser/hapus titik, simpan/buka proyek `.zip` (`project.json` + foto, `schema_version` tercatat), simpan otomatis ke IndexedDB.
 

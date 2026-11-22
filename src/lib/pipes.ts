@@ -1,5 +1,6 @@
 import type { NodeType, PipeNode, PipeSegment, PipeType, Project, Pt } from './types'
 import { dist } from './geometry'
+import { fmtDia, fmtInch } from './inch'
 
 /* ---------- Bantu ---------- */
 
@@ -14,7 +15,7 @@ export function segmentLengthPx(p: Project, s: PipeSegment): number {
   return a && b ? dist(a.point_px, b.point_px) : 0
 }
 
-export const pipeName = (t: PipeType | undefined): string => (t ? `Ø${t.diameter_mm} ${t.material}` : 'Tanpa jenis')
+export const pipeName = (t: PipeType | undefined): string => (t ? `${fmtDia(t.diameter_in)} ${t.material}` : 'Tanpa jenis')
 
 /* ---------- Operasi graf (murni: kembalikan Project baru) ---------- */
 
@@ -110,11 +111,11 @@ export interface Fitting {
   node_id: string
   kind: FittingKind
   material: string
-  diameter_mm: number
+  diameter_in: number
   /** Hanya elbow. */
   angle_deg: number | null
   /** Untuk reducer: diameter sisi kecil. */
-  diameter_small_mm: number | null
+  diameter_small_in: number | null
   /** true bila dipilih pengguna (bukan saran otomatis). */
   manual: boolean
 }
@@ -138,8 +139,8 @@ export function fittingsAt(p: Project, node: PipeNode): Fitting[] {
   const segs = segmentsAt(p, node.id)
   const types = segs.map((s) => typeById(p, s.pipe_type_id)).filter((t): t is PipeType => !!t)
   if (types.length === 0) return []
-  const big = types.reduce((m, t) => (t.diameter_mm > m.diameter_mm ? t : m))
-  const base = { node_id: node.id, material: big.material, diameter_mm: big.diameter_mm, angle_deg: null, diameter_small_mm: null }
+  const big = types.reduce((m, t) => (t.diameter_in > m.diameter_in ? t : m))
+  const base = { node_id: node.id, material: big.material, diameter_in: big.diameter_in, angle_deg: null, diameter_small_in: null }
   const bend = (): number | null => {
     if (segs.length !== 2) return null
     const [a, b] = segs.map((s) => nodeById(p, s.from_node_id === node.id ? s.to_node_id : s.from_node_id)?.point_px)
@@ -151,7 +152,7 @@ export function fittingsAt(p: Project, node: PipeNode): Fitting[] {
   const manualKinds: Partial<Record<NodeType, FittingKind>> = { valve: 'valve', cap: 'cap', meter: 'meter', manhole: 'manhole', tee: 'tee', reducer: 'reducer', elbow: 'elbow' }
   if (node.node_type !== 'junction') {
     const kind = manualKinds[node.node_type]!
-    const small = types.reduce((m, t) => (t.diameter_mm < m.diameter_mm ? t : m))
+    const small = types.reduce((m, t) => (t.diameter_in < m.diameter_in ? t : m))
     const deg = bend()
     return [
       {
@@ -159,15 +160,15 @@ export function fittingsAt(p: Project, node: PipeNode): Fitting[] {
         kind,
         manual: true,
         angle_deg: kind === 'elbow' ? (node.fitting_angle_deg ?? (deg !== null ? angleFor(deg) : 90)) : null,
-        diameter_small_mm: kind === 'reducer' ? small.diameter_mm : null,
+        diameter_small_in: kind === 'reducer' ? small.diameter_in : null,
       },
     ]
   }
 
   const out: Fitting[] = []
   if (segs.length === 2) {
-    const small = types.reduce((m, t) => (t.diameter_mm < m.diameter_mm ? t : m))
-    if (small.diameter_mm !== big.diameter_mm) out.push({ ...base, kind: 'reducer', manual: false, diameter_small_mm: small.diameter_mm })
+    const small = types.reduce((m, t) => (t.diameter_in < m.diameter_in ? t : m))
+    if (small.diameter_in !== big.diameter_in) out.push({ ...base, kind: 'reducer', manual: false, diameter_small_in: small.diameter_in })
     const deg = bend()
     if (deg !== null && deg >= BEND_MIN_DEG) out.push({ ...base, kind: 'elbow', manual: false, angle_deg: angleFor(deg) })
   } else if (segs.length === 3) {
@@ -192,7 +193,7 @@ export const FITTING_LABEL: Record<FittingKind, string> = {
 }
 
 export function fittingText(f: Fitting): string {
-  const d = f.kind === 'reducer' && f.diameter_small_mm ? `Ø${f.diameter_mm}×${f.diameter_small_mm}` : `Ø${f.diameter_mm}`
+  const d = f.kind === 'reducer' && f.diameter_small_in ? `Ø${fmtInch(f.diameter_in)}"×${fmtInch(f.diameter_small_in)}"` : fmtDia(f.diameter_in)
   return `${FITTING_LABEL[f.kind]}${f.angle_deg ? ` ${f.angle_deg}°` : ''} ${d} ${f.material}`
 }
 
@@ -200,7 +201,7 @@ export function fittingText(f: Fitting): string {
 
 export interface BomPipeRow {
   material: string
-  diameter_mm: number
+  diameter_in: number
   stock_length_m: number
   length_m: number
   length_with_waste_m: number
@@ -211,9 +212,9 @@ export interface BomPipeRow {
 export interface BomFittingRow {
   kind: FittingKind
   material: string
-  diameter_mm: number
+  diameter_in: number
   angle_deg: number | null
-  diameter_small_mm: number | null
+  diameter_small_in: number | null
   count: number
 }
 
@@ -228,8 +229,8 @@ export function computeBom(p: Project, mpp: number): Bom {
   for (const s of p.pipe_segments) {
     const t = typeById(p, s.pipe_type_id)
     if (!t) continue
-    const key = `${t.material}|${t.diameter_mm}|${t.stock_length_m}`
-    const row = rows.get(key) ?? { material: t.material, diameter_mm: t.diameter_mm, stock_length_m: t.stock_length_m, length_m: 0, length_with_waste_m: 0, pieces: 0, segments: 0 }
+    const key = `${t.material}|${t.diameter_in}|${t.stock_length_m}`
+    const row = rows.get(key) ?? { material: t.material, diameter_in: t.diameter_in, stock_length_m: t.stock_length_m, length_m: 0, length_with_waste_m: 0, pieces: 0, segments: 0 }
     row.length_m += segmentLengthPx(p, s) * mpp
     row.segments += 1
     rows.set(key, row)
@@ -241,16 +242,16 @@ export function computeBom(p: Project, mpp: number): Bom {
       // toleransi 1e-9 agar hasil pembulatan float (mis. 12.000000001) tidak menambah satu batang.
       return { ...r, length_with_waste_m: withWaste, pieces: r.stock_length_m > 0 ? Math.ceil(withWaste / r.stock_length_m - 1e-9) : 0 }
     })
-    .sort((a, b) => a.material.localeCompare(b.material) || a.diameter_mm - b.diameter_mm)
+    .sort((a, b) => a.material.localeCompare(b.material) || a.diameter_in - b.diameter_in)
 
   const fit = new Map<string, BomFittingRow>()
   for (const f of allFittings(p)) {
-    const key = [f.kind, f.material, f.diameter_mm, f.angle_deg, f.diameter_small_mm].join('|')
-    const row = fit.get(key) ?? { kind: f.kind, material: f.material, diameter_mm: f.diameter_mm, angle_deg: f.angle_deg, diameter_small_mm: f.diameter_small_mm, count: 0 }
+    const key = [f.kind, f.material, f.diameter_in, f.angle_deg, f.diameter_small_in].join('|')
+    const row = fit.get(key) ?? { kind: f.kind, material: f.material, diameter_in: f.diameter_in, angle_deg: f.angle_deg, diameter_small_in: f.diameter_small_in, count: 0 }
     row.count += 1
     fit.set(key, row)
   }
-  const fittings = [...fit.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.diameter_mm - b.diameter_mm)
+  const fittings = [...fit.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.diameter_in - b.diameter_in)
   return { pipes, fittings, total_length_m: pipes.reduce((s, r) => s + r.length_m, 0) }
 }
 
@@ -270,12 +271,12 @@ const num = (n: number, d = 2) => n.toFixed(d)
 export function bomCsv(bom: Bom, wastePct: number): string {
   const rows: (string | number | null)[][] = [
     ['PIPA'],
-    ['Material', 'Diameter (mm)', 'Panjang total (m)', `Dengan cadangan ${wastePct}% (m)`, 'Panjang batang (m)', 'Jumlah batang', 'Jumlah segmen'],
-    ...bom.pipes.map((r) => [r.material, r.diameter_mm, num(r.length_m), num(r.length_with_waste_m), r.stock_length_m, r.pieces, r.segments]),
+    ['Material', 'Diameter (inci)', 'Panjang total (m)', `Dengan cadangan ${wastePct}% (m)`, 'Panjang batang (m)', 'Jumlah batang', 'Jumlah segmen'],
+    ...bom.pipes.map((r) => [r.material, fmtInch(r.diameter_in), num(r.length_m), num(r.length_with_waste_m), r.stock_length_m, r.pieces, r.segments]),
     [],
     ['FITTING'],
-    ['Jenis', 'Material', 'Diameter (mm)', 'Sudut', 'Jumlah'],
-    ...bom.fittings.map((f) => [FITTING_LABEL[f.kind], f.material, f.kind === 'reducer' && f.diameter_small_mm ? `${f.diameter_mm}x${f.diameter_small_mm}` : f.diameter_mm, f.angle_deg ? `${f.angle_deg}°` : '', f.count]),
+    ['Jenis', 'Material', 'Diameter (inci)', 'Sudut', 'Jumlah'],
+    ...bom.fittings.map((f) => [FITTING_LABEL[f.kind], f.material, f.kind === 'reducer' && f.diameter_small_in ? `${fmtInch(f.diameter_in)}x${fmtInch(f.diameter_small_in)}` : fmtInch(f.diameter_in), f.angle_deg ? `${f.angle_deg}°` : '', f.count]),
   ]
   return toCsv(rows)
 }

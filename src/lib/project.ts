@@ -1,5 +1,6 @@
 import JSZip from 'jszip'
 import { SCHEMA_VERSION, type Project, type PipeType } from './types'
+import { mmToNominalInch } from './inch'
 
 export class ProjectFileError extends Error {}
 
@@ -25,12 +26,15 @@ export const defaultLayers = () => [
 
 /** Katalog awal; bisa diubah di aplikasi. */
 export const defaultPipeTypes = (): PipeType[] => [
-  { id: 'pt-pvc-63', material: 'PVC', diameter_mm: 63, service: 'Air bersih', color: '#2563EB', stock_length_m: 4 },
-  { id: 'pt-pvc-110', material: 'PVC', diameter_mm: 110, service: 'Air bersih', color: '#0EA5E9', stock_length_m: 4 },
-  { id: 'pt-pvc-160', material: 'PVC', diameter_mm: 160, service: 'Air kotor', color: '#7C3AED', stock_length_m: 4 },
-  { id: 'pt-hdpe-63', material: 'HDPE', diameter_mm: 63, service: 'Air bersih', color: '#059669', stock_length_m: 6 },
-  { id: 'pt-hdpe-110', material: 'HDPE', diameter_mm: 110, service: 'Air bersih', color: '#16A34A', stock_length_m: 6 },
-  { id: 'pt-gi-50', material: 'GI', diameter_mm: 50, service: 'Air bersih', color: '#EA580C', stock_length_m: 6 },
+  { id: 'pt-pvc-075', material: 'PVC', diameter_in: 0.75, service: 'Air bersih', color: '#38BDF8', stock_length_m: 4 },
+  { id: 'pt-pvc-1', material: 'PVC', diameter_in: 1, service: 'Air bersih', color: '#0EA5E9', stock_length_m: 4 },
+  { id: 'pt-pvc-2', material: 'PVC', diameter_in: 2, service: 'Air bersih', color: '#2563EB', stock_length_m: 4 },
+  { id: 'pt-pvc-3', material: 'PVC', diameter_in: 3, service: 'Air kotor', color: '#7C3AED', stock_length_m: 4 },
+  { id: 'pt-pvc-4', material: 'PVC', diameter_in: 4, service: 'Air kotor', color: '#9333EA', stock_length_m: 4 },
+  { id: 'pt-hdpe-2', material: 'HDPE', diameter_in: 2, service: 'Air bersih', color: '#059669', stock_length_m: 6 },
+  { id: 'pt-hdpe-4', material: 'HDPE', diameter_in: 4, service: 'Air bersih', color: '#16A34A', stock_length_m: 6 },
+  { id: 'pt-gi-1', material: 'GI', diameter_in: 1, service: 'Air bersih', color: '#EA580C', stock_length_m: 6 },
+  { id: 'pt-gi-2', material: 'GI', diameter_in: 2, service: 'Air bersih', color: '#F97316', stock_length_m: 6 },
 ]
 
 /** Naikkan proyek dari format lama ke versi sekarang. */
@@ -41,7 +45,16 @@ export function migrate(p: Project): Project {
     ...p,
     project: { ...p.project, schema_version: SCHEMA_VERSION },
     layers: v < 2 && !p.layers.some((l) => l.kind === 'pipe') ? [...p.layers, base.layers[1]] : p.layers,
-    pipe_types: p.pipe_types ?? base.pipe_types,
+    // v2 menyimpan diameter dalam mm (diameter_mm); v3 dalam inci nominal.
+    pipe_types: (p.pipe_types ?? base.pipe_types).map((t) => {
+      const legacy = (t as unknown as { diameter_mm?: number }).diameter_mm
+      if (typeof legacy === 'number' && typeof t.diameter_in !== 'number') {
+        const { diameter_mm: _drop, ...rest } = t as unknown as Record<string, unknown>
+        void _drop
+        return { ...rest, diameter_in: mmToNominalInch(legacy) } as unknown as PipeType
+      }
+      return t
+    }),
     pipe_nodes: p.pipe_nodes ?? [],
     pipe_segments: p.pipe_segments ?? [],
     settings: { ...base.settings, ...(p.settings ?? {}) },

@@ -4,7 +4,7 @@ import { addNode, addSegment, computeBom, deleteNode, deleteSegment, fittingsAt,
 import type { PipeNode, Project } from './types'
 
 const node = (id: string, x: number, y: number): PipeNode => ({ id, layer_id: 'layer-pipa', point_px: [x, y], node_type: 'junction', fitting_angle_deg: null })
-const seg = (id: string, a: string, b: string, t = 'pt-pvc-110') => ({ id, layer_id: 'layer-pipa', from_node_id: a, to_node_id: b, pipe_type_id: t, label: '' })
+const seg = (id: string, a: string, b: string, t = 'pt-pvc-4') => ({ id, layer_id: 'layer-pipa', from_node_id: a, to_node_id: b, pipe_type_id: t, label: '' })
 
 function build(nodes: PipeNode[], segs: ReturnType<typeof seg>[]): Project {
   let p = newProject()
@@ -31,11 +31,11 @@ describe('fitting otomatis', () => {
     expect(fittingsAt(p, nodeById(p, 'b')!)[0].angle_deg).toBe(40)
   })
   it('3 segmen jadi tee; beda diameter jadi reducer', () => {
-    const p = build([node('a', 0, 0), node('b', 100, 0), node('c', 200, 0), node('d', 100, 100)], [seg('s1', 'a', 'b'), seg('s2', 'b', 'c'), seg('s3', 'b', 'd', 'pt-pvc-63')])
+    const p = build([node('a', 0, 0), node('b', 100, 0), node('c', 200, 0), node('d', 100, 100)], [seg('s1', 'a', 'b'), seg('s2', 'b', 'c'), seg('s3', 'b', 'd', 'pt-pvc-2')])
     expect(fittingsAt(p, nodeById(p, 'b')!).map((f) => f.kind)).toEqual(['tee'])
-    const q = build([node('a', 0, 0), node('b', 100, 0), node('c', 200, 0)], [seg('s1', 'a', 'b', 'pt-pvc-110'), seg('s2', 'b', 'c', 'pt-pvc-63')])
+    const q = build([node('a', 0, 0), node('b', 100, 0), node('c', 200, 0)], [seg('s1', 'a', 'b', 'pt-pvc-4'), seg('s2', 'b', 'c', 'pt-pvc-2')])
     const f = fittingsAt(q, nodeById(q, 'b')!)
-    expect(f[0]).toMatchObject({ kind: 'reducer', diameter_mm: 110, diameter_small_mm: 63 })
+    expect(f[0]).toMatchObject({ kind: 'reducer', diameter_in: 4, diameter_small_in: 2 })
   })
   it('node khusus menggantikan saran otomatis', () => {
     let p = build([node('a', 0, 0), node('b', 100, 0), node('c', 200, 0)], [seg('s1', 'a', 'b'), seg('s2', 'b', 'c')])
@@ -86,7 +86,7 @@ describe('BOM', () => {
     // 100 px * 0,5 m/px = 50 m; +10% = 55 m; batang 4 m -> 14
     const p = build([node('a', 0, 0), node('b', 100, 0)], [seg('s1', 'a', 'b')])
     const bom = computeBom(p, 0.5)
-    expect(bom.pipes[0]).toMatchObject({ material: 'PVC', diameter_mm: 110, segments: 1, pieces: 14 })
+    expect(bom.pipes[0]).toMatchObject({ material: 'PVC', diameter_in: 4, segments: 1, pieces: 14 })
     expect(bom.pipes[0].length_m).toBeCloseTo(50)
   })
   it('tepat kelipatan batang tidak menambah satu batang', () => {
@@ -104,12 +104,28 @@ describe('BOM', () => {
 })
 
 describe('migrasi', () => {
-  it('proyek v1 naik ke v2 dengan katalog, layer pipa, dan pengaturan', () => {
+  it('proyek v1 naik ke v3 dengan katalog, layer pipa, dan pengaturan', () => {
     const v1 = { project: { schema_version: 1, name: 'x', location: '', created_at: '', updated_at: '' }, image: null, calibrations: [], layers: [{ id: 'layer-ukur', name: 'Pengukuran', kind: 'measure', color: '#000', visible: true, locked: false }], measurements: [] } as unknown as Project
     const m = migrate(v1)
-    expect(m.project.schema_version).toBe(2)
+    expect(m.project.schema_version).toBe(3)
     expect(m.layers.some((l) => l.kind === 'pipe')).toBe(true)
     expect(m.pipe_types.length).toBeGreaterThan(0)
     expect(m.settings.waste_pct).toBe(10)
+  })
+  it('proyek v2 (mm) dikonversi ke inci nominal tanpa memutus segmen', () => {
+    const v2 = {
+      ...newProject(),
+      project: { schema_version: 2, name: 'x', location: '', created_at: '', updated_at: '' },
+      pipe_types: [
+        { id: 'pt-pvc-110', material: 'PVC', diameter_mm: 110, service: 'Air bersih', color: '#000', stock_length_m: 4 },
+        { id: 'pt-pvc-63', material: 'PVC', diameter_mm: 63, service: 'Air bersih', color: '#000', stock_length_m: 4 },
+        { id: 'x', material: 'PVC', diameter_mm: 50, service: 'a', color: '#000', stock_length_m: 4 },
+      ],
+      pipe_segments: [{ id: 's1', layer_id: 'layer-pipa', from_node_id: 'a', to_node_id: 'b', pipe_type_id: 'pt-pvc-110', label: '' }],
+    } as unknown as Project
+    const m = migrate(v2)
+    expect(m.pipe_types.map((t) => t.diameter_in)).toEqual([4, 2, 1.5])
+    expect(m.pipe_types.every((t) => !('diameter_mm' in t))).toBe(true)
+    expect(m.pipe_segments[0].pipe_type_id).toBe('pt-pvc-110')
   })
 })

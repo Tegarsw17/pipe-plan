@@ -3,6 +3,7 @@ import { Plus, Trash2, Upload, X } from 'lucide-react'
 import { useStore, uid } from '../store'
 import { openProjectZip, ProjectFileError } from '../lib/project'
 import type { PipeType } from '../lib/types'
+import { fmtDia, fmtInch, parseInch } from '../lib/inch'
 
 export const catalogDialogOpen = { open: () => {} }
 
@@ -23,7 +24,7 @@ export function CatalogDialog() {
 
   const add = () => {
     const last = types[types.length - 1]
-    const t: PipeType = { id: uid('pt'), material: last?.material ?? 'PVC', diameter_mm: 50, service: last?.service ?? 'Air bersih', color: '#2563EB', stock_length_m: last?.stock_length_m ?? 4 }
+    const t: PipeType = { id: uid('pt'), material: last?.material ?? 'PVC', diameter_in: 1, service: last?.service ?? 'Air bersih', color: '#2563EB', stock_length_m: last?.stock_length_m ?? 4 }
     st().upsertPipeType(t)
   }
 
@@ -52,18 +53,18 @@ export function CatalogDialog() {
           <div className="table-wrap">
             <table className="grid">
               <thead>
-                <tr><th>Material</th><th>Ø (mm)</th><th>Layanan</th><th>Warna</th><th>Batang (m)</th><th><span className="sr">Hapus</span></th></tr>
+                <tr><th>Material</th><th>Ø (inci)</th><th>Layanan</th><th>Warna</th><th>Batang (m)</th><th><span className="sr">Hapus</span></th></tr>
               </thead>
               <tbody>
                 {types.map((t) => (
                   <tr key={t.id}>
                     <td><input aria-label="Material" value={t.material} maxLength={24} onChange={(e) => edit(t, { material: e.target.value })} /></td>
-                    <td><input aria-label="Diameter dalam mm" inputMode="decimal" defaultValue={t.diameter_mm} key={t.diameter_mm} onBlur={(e) => edit(t, { diameter_mm: posNum(e.target.value, t.diameter_mm) })} /></td>
+                    <td><input aria-label="Diameter dalam inci" inputMode="text" placeholder='mis. 1 1/2' defaultValue={fmtInch(t.diameter_in)} key={t.diameter_in} onBlur={(e) => edit(t, { diameter_in: parseInch(e.target.value) ?? t.diameter_in })} /></td>
                     <td><input aria-label="Layanan" value={t.service} maxLength={32} onChange={(e) => edit(t, { service: e.target.value })} /></td>
                     <td><input aria-label="Warna" type="color" value={t.color} onChange={(e) => edit(t, { color: e.target.value })} /></td>
                     <td><input aria-label="Panjang per batang dalam meter" inputMode="decimal" defaultValue={t.stock_length_m} key={t.stock_length_m} onBlur={(e) => edit(t, { stock_length_m: posNum(e.target.value, t.stock_length_m) })} /></td>
                     <td>
-                      <button type="button" className="icon-btn danger" aria-label={`Hapus Ø${t.diameter_mm} ${t.material}`} title={used.has(t.id) ? 'Dipakai di gambar' : 'Hapus'} onClick={() => st().removePipeType(t.id)}>
+                      <button type="button" className="icon-btn danger" aria-label={`Hapus ${fmtDia(t.diameter_in)} ${t.material}`} title={used.has(t.id) ? 'Dipakai di gambar' : 'Hapus'} onClick={() => st().removePipeType(t.id)}>
                         <Trash2 size={16} aria-hidden />
                       </button>
                     </td>
