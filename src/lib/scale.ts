@@ -6,10 +6,11 @@ export const FULL_FRAME_DIAG_MM = 43.267
 /** Lebar sensor (mm) dari focal length nyata dan ekuivalen 35 mm, dengan asumsi sensor 4:3 (kamera drone DJI umumnya). */
 export const sensorWidthFrom35mm = (focal_mm: number, focal35_mm: number): number => (SENSOR_4_3_FACTOR * FULL_FRAME_DIAG_MM * focal_mm) / focal35_mm
 
-/** Profil kamera yang dikenal; nilai perkiraan, pengguna bisa mengoreksinya. Kunci: nilai EXIF Model. */
-export const CAMERA_PROFILES: Record<string, { name: string; sensor_width_mm: number }> = {
-  FC3582: { name: 'DJI Mini 3 Pro', sensor_width_mm: 9.6 },
-}
+/**
+ * Profil kamera yang dikenal, kunci = nilai EXIF Model. Sengaja kosong: lebar sensor dihitung dari focal length nyata dan ekuivalen 35 mm
+ * yang ada di EXIF drone DJI, dan kode model belum diverifikasi terhadap foto nyata. Tambahkan hanya setelah dicek.
+ */
+export const CAMERA_PROFILES: Record<string, { name: string; sensor_width_mm: number }> = {}
 
 export interface ExifScaleInput {
   sensor_width_mm: number

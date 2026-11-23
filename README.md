@@ -4,7 +4,7 @@ Aplikasi web statis untuk mengukur jarak, polyline, dan luas di atas foto drone.
 
 ## Status
 
-**Tahap 1 (Ukur dasar) selesai**: T001–T015. T016 (uji lapangan dengan foto Mini 3 Pro) menunggu foto nyata.
+**Tahap 1 (Ukur dasar) selesai**: T001–T015. T016 (uji lapangan): foto drone asli 4032×2268 px sudah diuji; hasilnya ada di catatan backlog dan menunggu konfirmasi pengguna.
 
 **Tahap 2 (Pipa dan BOM) selesai**: T017–T032. Format proyek: `schema_version` 2 menambah data pipa; proyek versi 1 otomatis dimigrasi.
 
